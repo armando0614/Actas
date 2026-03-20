@@ -36,6 +36,8 @@ import {
 } from 'recharts';
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { clsx, type ClassValue } from 'clsx';
@@ -318,42 +320,145 @@ export default function App() {
   }, [records]);
 
   // --- Exports ---
-  const exportToExcel = () => {
-    // Sort records by name to group them
-    const sorted = [...filteredRecords].sort((a, b) => a.fullName.localeCompare(b.fullName));
-    
-    // Prepare data using Array of Arrays
-    const data: any[][] = [
-      ["RESUMEN DE ACTAS ADMINISTRATIVAS"],
-      [`REPORTE GENERADO EL: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`],
-      [],
-      ["NOMBRE COMPLETO", "PUESTO", "MOTIVO DEL ACTA", "FECHA"]
-    ];
+  const exportToExcel = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      
+      const fillSheetWithData = (worksheet: ExcelJS.Worksheet, dataRecords: ActaRecord[], sheetTitle: string) => {
+        // 1. Header Section
+        worksheet.mergeCells('A1:D1');
+        const titleCell = worksheet.getCell('A1');
+        titleCell.value = 'RESUMEN DE ACTAS ADMINISTRATIVAS';
+        titleCell.font = { name: 'Arial', size: 12, color: { argb: 'FFFFFFFF' }, bold: true };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E4E79' } }; // Dark Blue from image
+        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        worksheet.getRow(1).height = 25;
 
-    sorted.forEach((r) => {
-      data.push([r.fullName, r.position, r.reason, r.date]);
-    });
+        worksheet.mergeCells('A2:B2');
+        const dateCell = worksheet.getCell('A2');
+        dateCell.value = `REPORTE GENERADO EL: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`;
+        dateCell.font = { name: 'Arial', size: 10, bold: true };
+        dateCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        worksheet.getRow(2).height = 20;
 
-    // Add final summary
-    data.push([]);
-    data.push(["RESUMEN GENERAL"]);
-    data.push(["Total de Actas Registradas:", sorted.length]);
-    data.push(["Total de Personas con Actas:", new Set(sorted.map(r => r.fullName)).size]);
+        // 2. Table Headers
+        const headerRow = worksheet.getRow(4);
+        headerRow.values = ['NOMBRE COMPLETO', 'PUESTO', 'MOTIVO DEL ACTA', 'FECHA'];
+        headerRow.height = 40;
+        headerRow.eachCell((cell) => {
+          cell.font = { name: 'Arial', size: 10, bold: true };
+          cell.border = { 
+            top: { style: 'thin' }, 
+            left: { style: 'thin' }, 
+            bottom: { style: 'thin' }, 
+            right: { style: 'thin' } 
+          };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        });
 
-    const worksheet = XLSX.utils.aoa_to_sheet(data);
-    
-    // Define column widths
-    worksheet['!cols'] = [
-      { wch: 35 }, // Nombre
-      { wch: 25 }, // Puesto
-      { wch: 60 }, // Motivo
-      { wch: 15 }  // Fecha
-    ];
+        // 3. Data Rows
+        let currentRow = 5;
+        const sorted = [...dataRecords].sort((a, b) => a.fullName.localeCompare(b.fullName));
+        
+        sorted.forEach((r) => {
+          const row = worksheet.getRow(currentRow);
+          row.values = [r.fullName, r.position, r.reason, r.date];
+          row.height = 60; // Approximate height from image
+          row.eachCell((cell) => {
+            cell.font = { name: 'Arial', size: 9 };
+            cell.border = { 
+              top: { style: 'thin' }, 
+              left: { style: 'thin' }, 
+              bottom: { style: 'thin' }, 
+              right: { style: 'thin' } 
+            };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          });
+          currentRow++;
+        });
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte de Actas");
-    
-    XLSX.writeFile(workbook, `Resumen_Actas_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+        // 4. Summary Table (Only on first sheet or if requested)
+        currentRow += 2;
+        const summaryStart = currentRow;
+        
+        worksheet.mergeCells(`A${currentRow}:C${currentRow}`);
+        const summaryHeader = worksheet.getCell(`A${currentRow}`);
+        summaryHeader.value = 'RESUMEN GENERAL';
+        summaryHeader.font = { name: 'Arial', size: 10, bold: true };
+        summaryHeader.alignment = { vertical: 'middle', horizontal: 'center' };
+        summaryHeader.border = { 
+          top: { style: 'thin' }, 
+          left: { style: 'thin' }, 
+          bottom: { style: 'thin' }, 
+          right: { style: 'thin' } 
+        };
+        worksheet.getCell(`D${currentRow}`).border = { 
+          top: { style: 'thin' }, 
+          left: { style: 'thin' }, 
+          bottom: { style: 'thin' }, 
+          right: { style: 'thin' } 
+        };
+        currentRow++;
+
+        const createSummaryRow = (label: string, value: number) => {
+          worksheet.mergeCells(`A${currentRow}:C${currentRow}`);
+          const labelCell = worksheet.getCell(`A${currentRow}`);
+          labelCell.value = label;
+          labelCell.font = { name: 'Arial', size: 10 };
+          labelCell.border = { 
+            top: { style: 'thin' }, 
+            left: { style: 'thin' }, 
+            bottom: { style: 'thin' }, 
+            right: { style: 'thin' } 
+          };
+          
+          const valueCell = worksheet.getCell(`D${currentRow}`);
+          valueCell.value = value;
+          valueCell.font = { name: 'Arial', size: 10 };
+          valueCell.alignment = { horizontal: 'center' };
+          valueCell.border = { 
+            top: { style: 'thin' }, 
+            left: { style: 'thin' }, 
+            bottom: { style: 'thin' }, 
+            right: { style: 'thin' } 
+          };
+          currentRow++;
+        };
+
+        createSummaryRow('Total de Actas Registradas:', sorted.length);
+        createSummaryRow('Total de Personas con Actas:', new Set(sorted.map(r => r.fullName)).size);
+
+        // Column Widths
+        worksheet.getColumn(1).width = 30;
+        worksheet.getColumn(2).width = 25;
+        worksheet.getColumn(3).width = 70;
+        worksheet.getColumn(4).width = 12;
+      };
+
+      // Sheet 1: General
+      const sheet1 = workbook.addWorksheet('Reporte General');
+      fillSheetWithData(sheet1, filteredRecords, 'General');
+
+      // Sheet 2: Reincidentes (3+)
+      // Calculate who has 3 or more records total
+      const counts: Record<string, number> = {};
+      records.forEach(r => counts[r.fullName] = (counts[r.fullName] || 0) + 1);
+      const reincidentNames = Object.keys(counts).filter(name => counts[name] >= 3);
+      const reincidentRecords = filteredRecords.filter(r => reincidentNames.includes(r.fullName));
+
+      if (reincidentRecords.length > 0) {
+        const sheet2 = workbook.addWorksheet('Personas con 3+ Actas');
+        fillSheetWithData(sheet2, reincidentRecords, 'Reincidentes');
+      }
+
+      // Generate and Save
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, `Reporte_Actas_Final_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    } catch (error) {
+      console.error("Error generating Excel:", error);
+      alert("Error al generar el Excel. Por favor intenta de nuevo.");
+    }
   };
 
   const exportToPDF = () => {
