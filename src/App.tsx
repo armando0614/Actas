@@ -212,7 +212,13 @@ function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [records, setRecords] = useState<ActaRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats'>('dashboard');
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('actaspro-theme');
+      return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    }
+    return false;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
@@ -287,6 +293,17 @@ function App() {
   }, [records]);
 
   // --- Effects ---
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (darkMode) {
+      root.classList.add('dark');
+      localStorage.setItem('actaspro-theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      localStorage.setItem('actaspro-theme', 'light');
+    }
+  }, [darkMode]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -790,12 +807,30 @@ function App() {
             animate={{ opacity: 1, scale: 1, rotateY: 0 }}
             exit={{ opacity: 0, scale: 1.1, rotateY: 20, filter: "blur(10px)" }}
             transition={{ duration: 0.6, ease: "easeInOut" }}
-            className="fixed inset-0 z-[100] bg-slate-950 flex items-center justify-center p-4 overflow-hidden"
+            className={cn("fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden transition-colors duration-500", darkMode ? "bg-slate-950" : "bg-slate-100")}
           >
+            {/* Theme Toggle for Login Screen */}
+            <div className="absolute top-8 right-8">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setDarkMode(!darkMode)}
+                className={cn(
+                  "p-3 rounded-2xl shadow-lg transition-all",
+                  darkMode ? "bg-slate-900 text-yellow-400 border border-slate-800" : "bg-white text-slate-600 border border-slate-200"
+                )}
+              >
+                {darkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+              </motion.button>
+            </div>
+
             <motion.div 
               initial={{ y: 20 }}
               animate={{ y: 0 }}
-              className="w-full max-w-md bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/10 overflow-hidden relative"
+              className={cn(
+                "w-full max-w-md rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border overflow-hidden relative transition-colors duration-300",
+                darkMode ? "bg-slate-900 border-white/10" : "bg-white border-slate-200"
+              )}
               style={{ perspective: 1000 }}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-purple-600/10 pointer-events-none" />
@@ -822,7 +857,10 @@ function App() {
                       required
                       value={loginForm.username}
                       onChange={e => setLoginForm(prev => ({ ...prev, username: e.target.value }))}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
+                      className={cn(
+                        "w-full pl-11 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all",
+                        darkMode ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500" : "bg-slate-50 border-slate-200 text-slate-900"
+                      )}
                     />
                   </div>
                   <div className="relative">
@@ -833,7 +871,10 @@ function App() {
                       required
                       value={loginForm.password}
                       onChange={e => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
-                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
+                      className={cn(
+                        "w-full pl-11 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all",
+                        darkMode ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500" : "bg-slate-50 border-slate-200 text-slate-900"
+                      )}
                     />
                   </div>
                 </div>
@@ -852,15 +893,18 @@ function App() {
                   whileTap={{ scale: 0.98 }}
                   type="button"
                   onClick={handleBypass}
-                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border border-slate-200"
+                  className={cn(
+                    "w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border",
+                    darkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
+                  )}
                 >
                   Acceso Directo (Bypass)
                 </motion.button>
 
                 <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 pt-2">
-                  <div className="w-8 h-px bg-slate-200" />
+                  <div className={cn("w-8 h-px", darkMode ? "bg-slate-800" : "bg-slate-200")} />
                   <span>Sincronización en Tiempo Real</span>
-                  <div className="w-8 h-px bg-slate-200" />
+                  <div className={cn("w-8 h-px", darkMode ? "bg-slate-800" : "bg-slate-200")} />
                 </div>
               </form>
             </motion.div>
