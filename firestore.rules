@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: records
+    // Document ID: auto-generated
+    // Fields:
+    //   - fullName: string (required, 1-100 chars)
+    //   - position: string (required, 1-100 chars)
+    //   - reason: string (required, 1-2000 chars)
+    //   - date: string (required, YYYY-MM-DD format)
+    //   - createdAt: number (required, timestamp)
+    //   - createdBy: string (required, uid)
+    //   - authorEmail: string (optional, email)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == "armandolopezarrazola6@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    function isValidRecord(data) {
+      return data.keys().hasAll(['fullName', 'position', 'reason', 'date', 'createdAt', 'createdBy']) &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100 &&
+             data.position is string && data.position.size() > 0 && data.position.size() <= 100 &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() <= 2000 &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.createdAt is number &&
+             data.createdBy is string && data.createdBy == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /records/{recordId} {
+      // Allow any authenticated user to read records (for sharing)
+      allow read: if isAuthenticated();
+      
+      // Allow creation if data is valid and user is authenticated
+      allow create: if isAuthenticated() && isValidRecord(request.resource.data);
+      
+      // Allow update if user is the creator or an admin, and data remains valid
+      allow update: if isAuthenticated() && 
+                    (isOwner(resource.data.createdBy) || isAdmin()) &&
+                    isValidRecord(request.resource.data) &&
+                    request.resource.data.createdBy == resource.data.createdBy &&
+                    request.resource.data.createdAt == resource.data.createdAt;
+      
+      // Allow deletion if user is the creator or an admin
+      allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isAdmin());
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "entities": {
+    "ActaRecord": {
+      "title": "ActaRecord",
+      "description": "Registro de un acta administrativa de un empleado.",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "description": "Nombre completo del empleado" },
+        "position": { "type": "string", "description": "Puesto del empleado" },
+        "reason": { "type": "string", "description": "Motivo del acta" },
+        "date": { "type": "string", "format": "date", "description": "Fecha del acta (YYYY-MM-DD)" },
+        "createdAt": { "type": "number", "description": "Timestamp de creación" },
+        "createdBy": { "type": "string", "description": "UID del usuario que creó el registro" },
+        "authorEmail": { "type": "string", "format": "email", "description": "Email del autor" }
+      },
+      "required": ["fullName", "position", "reason", "date", "createdAt", "createdBy"]
+    }
+  },
+  "firestore": {
+    "/records/{recordId}": {
+      "schema": "ActaRecord",
+      "description": "Colección global de actas administrativas."
+    }
+  }
+}

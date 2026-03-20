@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import * as React from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -45,6 +46,133 @@ import 'jspdf-autotable';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Type } from "@google/genai";
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  auth, 
+  db, 
+  googleProvider, 
+  signInWithPopup, 
+  onAuthStateChanged, 
+  signOut, 
+  FirebaseUser 
+} from './firebase';
+import { 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  deleteDoc, 
+  doc, 
+  updateDoc,
+  getDocFromServer
+} from 'firebase/firestore';
+
+// --- Error Handling ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// --- Error Boundary ---
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Ocurrió un error inesperado.";
+      try {
+        const parsed = JSON.parse(this.state.error.message);
+        if (parsed.error && parsed.operationType) {
+          errorMessage = `Error de base de datos (${parsed.operationType}): ${parsed.error}`;
+        }
+      } catch (e) {
+        errorMessage = this.state.error.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">¡Ups! Algo salió mal</h2>
+            <p className="text-slate-600 mb-8">{errorMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-all"
+            >
+              Recargar aplicación
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Utility ---
 function cn(...inputs: ClassValue[]) {
@@ -59,6 +187,8 @@ interface ActaRecord {
   reason: string;
   date: string;
   createdAt: number;
+  createdBy: string;
+  authorEmail?: string;
 }
 
 // --- Constants ---
@@ -66,17 +196,39 @@ const STORAGE_KEY = 'actas_records_v1';
 const ADMIN_USER = 'admin';
 const ADMIN_PASS = '1234';
 
-export default function App() {
+export default function AppWrapper() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+function App() {
   // --- State ---
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loginForm, setLoginForm] = useState({ user: '', pass: '' });
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [records, setRecords] = useState<ActaRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats'>('dashboard');
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm?: () => void;
+    type: 'alert' | 'confirm';
+  }>({ isOpen: false, title: '', message: '', type: 'alert' });
+  
+  const showAlert = (title: string, message: string) => {
+    setModal({ isOpen: true, title, message, type: 'alert' });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+    setModal({ isOpen: true, title, message, onConfirm, type: 'confirm' });
+  };
+
   // Form State
   const [formData, setFormData] = useState({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -133,60 +285,71 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setIsAuthLoading(false);
+    });
+
+    // Test Firestore connection
+    const testConnection = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    };
+    testConnection();
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setRecords([]);
+      return;
+    }
+
+    const q = query(collection(db, 'records'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedRecords = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ActaRecord[];
+      setRecords(fetchedRecords);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'records');
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
     const key = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
     const isValid = !!key && key !== 'MY_GEMINI_API_KEY';
     console.log("API Key detected:", isValid ? "YES" : "NO");
     setHasApiKey(isValid);
   }, []);
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed: ActaRecord[] = JSON.parse(saved);
-        // Automatic cleanup of duplicates on load
-        const seen = new Set();
-        const unique = parsed.filter(r => {
-          const key = `${r.fullName.trim().toLowerCase()}|${r.position.trim().toLowerCase()}|${r.reason.trim().toLowerCase()}|${r.date}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        setRecords(unique);
-      } catch (e) {
-        console.error("Error loading records", e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  }, [records]);
 
   // --- Handlers ---
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    
-    const inputUser = loginForm.user.trim().toLowerCase();
-    const inputPass = loginForm.pass.trim();
-
-    if (inputUser === ADMIN_USER.toLowerCase() && inputPass === ADMIN_PASS) {
-      setIsLoggedIn(true);
-    } else {
-      setLoginError("Usuario o contraseña incorrectos");
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Login Error:", error);
     }
   };
 
-  const handleBypass = () => {
-    setIsLoggedIn(true);
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout Error:", error);
+    }
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setLoginForm({ user: '', pass: '' });
-  };
-
-  const handleSaveRecord = (e: React.FormEvent) => {
+  const handleSaveRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.fullName || !formData.position || !formData.date) return;
 
@@ -200,47 +363,73 @@ export default function App() {
     );
 
     if (isDuplicate) {
-      alert("Este registro ya existe (mismo nombre, puesto, motivo y fecha).");
+      showAlert("Registro Duplicado", "Este registro ya existe (mismo nombre, puesto, motivo y fecha).");
       return;
     }
 
-    if (editingId) {
-      setRecords(prev => prev.map(r => r.id === editingId ? { ...r, ...formData } : r));
-      setEditingId(null);
-    } else {
-      const newRecord: ActaRecord = {
-        id: crypto.randomUUID(),
-        ...formData,
-        createdAt: Date.now()
-      };
-      setRecords(prev => [newRecord, ...prev]);
+    try {
+      if (editingId) {
+        const docRef = doc(db, 'records', editingId);
+        await updateDoc(docRef, { ...formData });
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, 'records'), {
+          ...formData,
+          createdAt: Date.now(),
+          createdBy: user?.uid,
+          authorEmail: user?.email
+        });
+      }
+      setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
+    } catch (error) {
+      handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'records');
     }
-    setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
   };
 
-  const removeDuplicates = () => {
+  const removeDuplicates = async () => {
     const seen = new Set();
-    const uniqueRecords = records.filter(r => {
+    const duplicates: string[] = [];
+    
+    records.forEach(r => {
       const key = `${r.fullName.trim().toLowerCase()}|${r.position.trim().toLowerCase()}|${r.reason.trim().toLowerCase()}|${r.date}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+      if (seen.has(key)) {
+        duplicates.push(r.id);
+      } else {
+        seen.add(key);
+      }
     });
 
-    if (uniqueRecords.length < records.length) {
-      const count = records.length - uniqueRecords.length;
-      if (confirm(`Se encontraron ${count} registros duplicados. ¿Deseas eliminarlos?`)) {
-        setRecords(uniqueRecords);
-      }
+    if (duplicates.length > 0) {
+      showConfirm(
+        "Registros Duplicados",
+        `Se encontraron ${duplicates.length} registros duplicados. ¿Deseas eliminarlos de la base de datos?`,
+        async () => {
+          try {
+            for (const id of duplicates) {
+              await deleteDoc(doc(db, 'records', id));
+            }
+          } catch (error) {
+            handleFirestoreError(error, OperationType.DELETE, 'records');
+          }
+        }
+      );
     } else {
-      alert("No se encontraron registros duplicados.");
+      showAlert("Limpieza", "No se encontraron registros duplicados.");
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("¿Estás seguro de eliminar este registro?")) {
-      setRecords(prev => prev.filter(r => r.id !== id));
-    }
+  const handleDelete = async (id: string) => {
+    showConfirm(
+      "Eliminar Registro",
+      "¿Estás seguro de eliminar este registro?",
+      async () => {
+        try {
+          await deleteDoc(doc(db, 'records', id));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'records');
+        }
+      }
+    );
   };
 
   const handleEdit = (record: ActaRecord) => {
@@ -326,7 +515,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Error extracting data:", error);
       const message = error?.message || "Ocurrió un error inesperado.";
-      alert(`No se pudo extraer la información de la imagen: ${message}`);
+      showAlert("Error de Extracción", `No se pudo extraer la información de la imagen: ${message}`);
     } finally {
       setIsExtracting(false);
       // Reset file input
@@ -502,7 +691,7 @@ export default function App() {
       saveAs(blob, `Reporte_Actas_Final_${format(new Date(), 'yyyyMMdd')}.xlsx`);
     } catch (error) {
       console.error("Error generating Excel:", error);
-      alert("Error al generar el Excel. Por favor intenta de nuevo.");
+      showAlert("Error", "Error al generar el Excel. Por favor intenta de nuevo.");
     }
   };
 
@@ -557,117 +746,103 @@ export default function App() {
       doc.save(`Resumen_Actas_${format(new Date(), 'yyyyMMdd')}.pdf`);
     } catch (error) {
       console.error("Error generating PDF:", error);
-      alert("Error al generar el PDF. Por favor intenta de nuevo.");
+      showAlert("Error", "Error al generar el PDF. Por favor intenta de nuevo.");
     }
   };
 
   // --- Render Login ---
-  if (!isLoggedIn) {
+  if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-          <div className="bg-slate-900 p-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-500 rounded-2xl mb-4 shadow-lg shadow-blue-500/20">
-              <FileText className="text-white w-8 h-8" />
-            </div>
-            <h1 className="text-2xl font-bold text-white">Control de Actas</h1>
-            <p className="text-slate-400 text-sm mt-1">Ingresa tus credenciales</p>
-          </div>
-          <form onSubmit={handleLogin} className="p-8 space-y-6">
-            {loginError && (
-              <div className="p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
-                <div className="w-1.5 h-1.5 bg-red-600 rounded-full" />
-                {loginError}
-              </div>
-            )}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Usuario</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input 
-                  type="text" 
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
-                  placeholder="admin"
-                  value={loginForm.user}
-                  onChange={e => {
-                    setLoginForm(prev => ({ ...prev, user: e.target.value }));
-                    setLoginError(null);
-                  }}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Contraseña</label>
-              <div className="relative">
-                <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-                <input 
-                  type={showPassword ? "text" : "password"} 
-                  className="w-full pl-10 pr-12 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
-                  placeholder="••••"
-                  value={loginForm.pass}
-                  onChange={e => {
-                    setLoginForm(prev => ({ ...prev, pass: e.target.value }));
-                    setLoginError(null);
-                  }}
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                >
-                  {showPassword ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-            <div className="pt-2">
-              <button 
-                type="submit"
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20 active:scale-[0.98]"
-              >
-                Iniciar Sesión
-              </button>
-            </div>
-            <div className="text-center space-y-4">
-              <p className="text-xs text-slate-400">
-                Prueba con <span className="font-mono font-bold text-slate-500">admin</span> / <span className="font-mono font-bold text-slate-500">1234</span>
-              </p>
-              <div className="pt-2 border-t border-slate-100">
-                <button 
-                  type="button"
-                  onClick={handleBypass}
-                  className="text-xs text-blue-500 hover:text-blue-700 font-medium underline underline-offset-4"
-                >
-                  Entrar sin contraseña (Bypass)
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  // --- Render App ---
   return (
     <div className={cn("min-h-screen flex flex-col md:flex-row", darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900")}>
-      {/* Mobile Header */}
-      <div className={cn(
-        "md:hidden flex items-center justify-between p-4 border-b transition-colors sticky top-0 z-50",
-        darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
-      )}>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <FileText className="text-white w-5 h-5" />
-          </div>
-          <span className="font-bold text-lg">ActasPro</span>
-        </div>
-        <button 
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-        >
-          {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
-      </div>
+      <AnimatePresence mode="wait">
+        {!user ? (
+          <motion.div 
+            key="login"
+            initial={{ opacity: 0, scale: 0.9, rotateY: -20 }}
+            animate={{ opacity: 1, scale: 1, rotateY: 0 }}
+            exit={{ opacity: 0, scale: 1.1, rotateY: 20, filter: "blur(10px)" }}
+            transition={{ duration: 0.6, ease: "easeInOut" }}
+            className="fixed inset-0 z-[100] bg-slate-950 flex items-center justify-center p-4 overflow-hidden"
+          >
+            <motion.div 
+              initial={{ y: 20 }}
+              animate={{ y: 0 }}
+              className="w-full max-w-md bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/10 overflow-hidden relative"
+              style={{ perspective: 1000 }}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-purple-600/10 pointer-events-none" />
+              
+              <div className="bg-slate-900 p-10 text-center relative">
+                <motion.div 
+                  animate={{ rotateY: [0, 360] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                  className="inline-flex items-center justify-center w-20 h-20 bg-blue-500 rounded-2xl mb-6 shadow-[0_0_30px_rgba(59,130,246,0.5)]"
+                >
+                  <FileText className="text-white w-10 h-10" />
+                </motion.div>
+                <h1 className="text-3xl font-bold text-white tracking-tight">ActasPro Cloud</h1>
+                <p className="text-slate-400 text-sm mt-2">Gestión de Actas Administrativas en la Nube</p>
+              </div>
+
+              <div className="p-10 space-y-8 text-center">
+                <p className="text-slate-600 text-sm leading-relaxed">
+                  Accede a la plataforma para gestionar y sincronizar tus registros en tiempo real con todo tu equipo.
+                </p>
+                
+                <motion.button 
+                  whileHover={{ scale: 1.05, translateZ: 20 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleLogin}
+                  className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-lg shadow-[0_10px_20px_rgba(37,99,235,0.3)] transition-all flex items-center justify-center gap-3 group"
+                >
+                  <User className="w-6 h-6 group-hover:rotate-12 transition-transform" />
+                  Iniciar Sesión
+                </motion.button>
+
+                <div className="flex items-center justify-center gap-4 text-xs text-slate-400 pt-4">
+                  <div className="w-12 h-px bg-slate-200" />
+                  <span>Seguro con Firebase</span>
+                  <div className="w-12 h-px bg-slate-200" />
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Decorative elements */}
+            <div className="fixed -top-20 -left-20 w-64 h-64 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="fixed -bottom-20 -right-20 w-64 h-64 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
+          </motion.div>
+        ) : (
+          <motion.div 
+            key="app"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex flex-col md:flex-row w-full min-h-screen"
+          >
+            {/* Mobile Header */}
+            <div className={cn(
+              "md:hidden flex items-center justify-between p-4 border-b transition-colors sticky top-0 z-50 w-full",
+              darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+            )}>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <FileText className="text-white w-5 h-5" />
+                </div>
+                <span className="font-bold text-lg">ActasPro</span>
+              </div>
+              <button 
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              </button>
+            </div>
 
       {/* Sidebar Overlay */}
       {sidebarOpen && (
@@ -750,6 +925,18 @@ export default function App() {
                 <span>IA Conectada</span>
               </div>
             )}
+          </div>
+          <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-3">
+            <img 
+              src={user?.photoURL || `https://ui-avatars.com/api/?name=${user?.displayName}`} 
+              alt="Avatar" 
+              className="w-10 h-10 rounded-full border-2 border-white dark:border-slate-700"
+              referrerPolicy="no-referrer"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold truncate">{user?.displayName}</p>
+              <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+            </div>
           </div>
           <button 
             onClick={() => setDarkMode(!darkMode)}
@@ -1006,7 +1193,7 @@ export default function App() {
                       type="button"
                       onClick={() => {
                         setEditingId(null);
-                        setFormData({ fullName: '', position: '', date: format(new Date(), 'yyyy-MM-dd') });
+                        setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
                       }}
                       className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                     >
@@ -1181,6 +1368,73 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Custom Modal */}
+      <AnimatePresence>
+        {modal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setModal(prev => ({ ...prev, isOpen: false }))}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className={cn(
+                "relative w-full max-w-md rounded-2xl shadow-2xl p-6 overflow-hidden",
+                darkMode ? "bg-slate-900 border border-slate-800" : "bg-white"
+              )}
+            >
+              <div className="flex items-start gap-4 mb-6">
+                <div className={cn(
+                  "w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0",
+                  modal.type === 'confirm' ? "bg-blue-100 text-blue-600" : "bg-amber-100 text-amber-600"
+                )}>
+                  {modal.type === 'confirm' ? <AlertCircle className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
+                </div>
+                <div>
+                  <h3 className={cn("text-lg font-bold mb-1", darkMode ? "text-white" : "text-slate-900")}>
+                    {modal.title}
+                  </h3>
+                  <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-600")}>
+                    {modal.message}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex justify-end gap-3">
+                {modal.type === 'confirm' && (
+                  <button 
+                    onClick={() => setModal(prev => ({ ...prev, isOpen: false }))}
+                    className={cn(
+                      "px-4 py-2 rounded-xl font-medium transition-colors",
+                      darkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-600"
+                    )}
+                  >
+                    Cancelar
+                  </button>
+                )}
+                <button 
+                  onClick={() => {
+                    if (modal.onConfirm) modal.onConfirm();
+                    setModal(prev => ({ ...prev, isOpen: false }));
+                  }}
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
+                >
+                  {modal.type === 'confirm' ? 'Confirmar' : 'Entendido'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
