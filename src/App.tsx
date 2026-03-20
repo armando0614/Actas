@@ -139,7 +139,16 @@ export default function App() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        setRecords(JSON.parse(saved));
+        const parsed: ActaRecord[] = JSON.parse(saved);
+        // Automatic cleanup of duplicates on load
+        const seen = new Set();
+        const unique = parsed.filter(r => {
+          const key = `${r.fullName.trim().toLowerCase()}|${r.position.trim().toLowerCase()}|${r.reason.trim().toLowerCase()}|${r.date}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setRecords(unique);
       } catch (e) {
         console.error("Error loading records", e);
       }
@@ -178,6 +187,20 @@ export default function App() {
     e.preventDefault();
     if (!formData.fullName || !formData.position || !formData.date) return;
 
+    // Check for duplicates before saving
+    const isDuplicate = records.some(r => 
+      r.fullName.trim().toLowerCase() === formData.fullName.trim().toLowerCase() &&
+      r.position.trim().toLowerCase() === formData.position.trim().toLowerCase() &&
+      r.reason.trim().toLowerCase() === formData.reason.trim().toLowerCase() &&
+      r.date === formData.date &&
+      r.id !== editingId
+    );
+
+    if (isDuplicate) {
+      alert("Este registro ya existe (mismo nombre, puesto, motivo y fecha).");
+      return;
+    }
+
     if (editingId) {
       setRecords(prev => prev.map(r => r.id === editingId ? { ...r, ...formData } : r));
       setEditingId(null);
@@ -190,6 +213,25 @@ export default function App() {
       setRecords(prev => [newRecord, ...prev]);
     }
     setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
+  };
+
+  const removeDuplicates = () => {
+    const seen = new Set();
+    const uniqueRecords = records.filter(r => {
+      const key = `${r.fullName.trim().toLowerCase()}|${r.position.trim().toLowerCase()}|${r.reason.trim().toLowerCase()}|${r.date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    if (uniqueRecords.length < records.length) {
+      const count = records.length - uniqueRecords.length;
+      if (confirm(`Se encontraron ${count} registros duplicados. ¿Deseas eliminarlos?`)) {
+        setRecords(uniqueRecords);
+      }
+    } else {
+      alert("No se encontraron registros duplicados.");
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -956,6 +998,14 @@ export default function App() {
                   />
                 </div>
                 <div className="flex gap-2 items-center">
+                  <button 
+                    onClick={removeDuplicates}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors text-sm font-medium"
+                    title="Eliminar registros idénticos"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Limpiar Duplicados
+                  </button>
                   <input 
                     type="date" 
                     className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm"
