@@ -381,9 +381,11 @@ function App() {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setUser(null);
       setLoginForm({ username: '', password: '' });
     } catch (error) {
       console.error("Logout Error:", error);
+      setUser(null);
     }
   };
 
