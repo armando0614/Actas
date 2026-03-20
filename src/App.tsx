@@ -25,7 +25,8 @@ import {
   Sun,
   AlertCircle,
   Menu,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -52,6 +53,7 @@ import {
   db, 
   googleProvider, 
   signInWithPopup, 
+  signInAnonymously,
   onAuthStateChanged, 
   signOut, 
   FirebaseUser 
@@ -212,6 +214,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats'>('dashboard');
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
   const [modal, setModal] = useState<{
     isOpen: boolean;
@@ -333,17 +336,35 @@ function App() {
   }, []);
 
   // --- Handlers ---
-  const handleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginForm.username === ADMIN_USER && loginForm.password === ADMIN_PASS) {
+      handleBypass();
+    } else {
+      showAlert("Credenciales Incorrectas", "El usuario o la contraseña son incorrectos.");
+    }
+  };
+
+  const handleBypass = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      // Try to sign in with Firebase
+      await signInAnonymously(auth);
     } catch (error) {
-      console.error("Login Error:", error);
+      console.warn("Firebase Auth failed, using local session fallback:", error);
+      // Fallback: Set a local user state so the app opens anyway
+      setUser({ 
+        uid: 'admin-local', 
+        email: 'admin@actaspro.cloud',
+        displayName: 'Administrador (Local)'
+      } as any);
+      setIsAuthLoading(false);
     }
   };
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      setLoginForm({ username: '', password: '' });
     } catch (error) {
       console.error("Logout Error:", error);
     }
@@ -377,7 +398,7 @@ function App() {
           ...formData,
           createdAt: Date.now(),
           createdBy: user?.uid,
-          authorEmail: user?.email
+          authorEmail: user?.email || 'Administrador'
         });
       }
       setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
@@ -779,39 +800,69 @@ function App() {
             >
               <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 to-purple-600/10 pointer-events-none" />
               
-              <div className="bg-slate-900 p-10 text-center relative">
+              <div className="bg-slate-900 p-8 text-center relative">
                 <motion.div 
                   animate={{ rotateY: [0, 360] }}
                   transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
-                  className="inline-flex items-center justify-center w-20 h-20 bg-blue-500 rounded-2xl mb-6 shadow-[0_0_30px_rgba(59,130,246,0.5)]"
+                  className="inline-flex items-center justify-center w-16 h-16 bg-blue-500 rounded-2xl mb-4 shadow-[0_0_30px_rgba(59,130,246,0.5)]"
                 >
-                  <FileText className="text-white w-10 h-10" />
+                  <FileText className="text-white w-8 h-8" />
                 </motion.div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">ActasPro Cloud</h1>
-                <p className="text-slate-400 text-sm mt-2">Gestión de Actas Administrativas en la Nube</p>
+                <h1 className="text-2xl font-bold text-white tracking-tight">ActasPro Cloud</h1>
+                <p className="text-slate-400 text-xs mt-1">Gestión de Actas Administrativas</p>
               </div>
 
-              <div className="p-10 space-y-8 text-center">
-                <p className="text-slate-600 text-sm leading-relaxed">
-                  Accede a la plataforma para gestionar y sincronizar tus registros en tiempo real con todo tu equipo.
-                </p>
+              <form onSubmit={handleLogin} className="p-8 space-y-5">
+                <div className="space-y-4">
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input 
+                      type="text"
+                      placeholder="Usuario"
+                      required
+                      value={loginForm.username}
+                      onChange={e => setLoginForm(prev => ({ ...prev, username: e.target.value }))}
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input 
+                      type="password"
+                      placeholder="Contraseña"
+                      required
+                      value={loginForm.password}
+                      onChange={e => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
+                      className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-slate-900"
+                    />
+                  </div>
+                </div>
                 
                 <motion.button 
-                  whileHover={{ scale: 1.05, translateZ: 20 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleLogin}
-                  className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold text-lg shadow-[0_10px_20px_rgba(37,99,235,0.3)] transition-all flex items-center justify-center gap-3 group"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="submit"
+                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
                 >
-                  <User className="w-6 h-6 group-hover:rotate-12 transition-transform" />
-                  Iniciar Sesión
+                  Acceder al Sistema
                 </motion.button>
 
-                <div className="flex items-center justify-center gap-4 text-xs text-slate-400 pt-4">
-                  <div className="w-12 h-px bg-slate-200" />
-                  <span>Seguro con Firebase</span>
-                  <div className="w-12 h-px bg-slate-200" />
+                <motion.button 
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  onClick={handleBypass}
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border border-slate-200"
+                >
+                  Acceso Directo (Bypass)
+                </motion.button>
+
+                <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 pt-2">
+                  <div className="w-8 h-px bg-slate-200" />
+                  <span>Sincronización en Tiempo Real</span>
+                  <div className="w-8 h-px bg-slate-200" />
                 </div>
-              </div>
+              </form>
             </motion.div>
 
             {/* Decorative elements */}
