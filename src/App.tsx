@@ -242,6 +242,7 @@ function App() {
   const [formData, setFormData] = useState({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
   
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -479,87 +480,135 @@ function App() {
   };
 
   const handleExtractFromImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
     setIsExtracting(true);
-    try {
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          if (result.includes(',')) {
-            resolve(result.split(',')[1]);
-          } else {
-            reject(new Error("Error al procesar la imagen. Formato no válido."));
-          }
-        };
-        reader.onerror = () => reject(new Error("Error al leer el archivo."));
-      });
-      reader.readAsDataURL(file);
-      const base64Data = await base64Promise;
+    setExtractionProgress({ current: 0, total: files.length });
 
-      const apiKey = 
-        (import.meta as any).env?.VITE_GEMINI_API_KEY || 
-        process.env.GEMINI_API_KEY || 
-        '';
-        
-      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-        console.error("GEMINI_API_KEY is missing or is the placeholder.");
-        throw new Error("La clave de API de Gemini no está configurada correctamente. Por favor, asegúrate de haberla añadido en la sección de Secretos (⚙️ -> Secrets) con el nombre GEMINI_API_KEY.");
-      }
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: file.type,
-              },
-            },
-            {
-              text: "Extract the full name, job position, date, and the reason (motivo) for the document. Return the data in JSON format.",
-            },
-          ],
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              fullName: { type: Type.STRING },
-              position: { type: Type.STRING },
-              reason: { type: Type.STRING, description: "The reason or motive for the record" },
-              date: { type: Type.STRING, description: "Date in YYYY-MM-DD format" },
-            },
-            required: ["fullName", "position", "reason", "date"],
-          },
-        },
-      });
-
-      if (!response.text) {
-        throw new Error("No se pudo obtener texto de la respuesta de la IA.");
-      }
-
-      const result = JSON.parse(response.text);
-      if (result.fullName || result.position || result.date || result.reason) {
-        setFormData({
-          fullName: result.fullName || '',
-          position: result.position || '',
-          reason: result.reason || '',
-          date: result.date || format(new Date(), 'yyyy-MM-dd'),
-        });
-      }
-    } catch (error: any) {
-      console.error("Error extracting data:", error);
-      const message = error?.message || "Ocurrió un error inesperado.";
-      showAlert("Error de Extracción", `No se pudo extraer la información de la imagen: ${message}`);
-    } finally {
+    const apiKey = 
+      (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+      process.env.GEMINI_API_KEY || 
+      '';
+      
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
       setIsExtracting(false);
-      // Reset file input
-      e.target.value = '';
+      console.error("GEMINI_API_KEY is missing or is the placeholder.");
+      showAlert("Error de Configuración", "La clave de API de Gemini no está configurada correctamente. Por favor, asegúrate de haberla añadido en la sección de Secretos (⚙️ -> Secrets) con el nombre GEMINI_API_KEY.");
+      return;
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setExtractionProgress({ current: i + 1, total: files.length });
+
+      try {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            if (result.includes(',')) {
+              resolve(result.split(',')[1]);
+            } else {
+              reject(new Error("Error al procesar la imagen. Formato no válido."));
+            }
+          };
+          reader.onerror = () => reject(new Error("Error al leer el archivo."));
+        });
+        reader.readAsDataURL(file);
+        const base64Data = await base64Promise;
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  data: base64Data,
+                  mimeType: file.type,
+                },
+              },
+              {
+                text: "Extract the full name, job position, date, and the reason (motivo) for the document. Return the data in JSON format.",
+              },
+            ],
+          },
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                fullName: { type: Type.STRING },
+                position: { type: Type.STRING },
+                reason: { type: Type.STRING, description: "The reason or motive for the record" },
+                date: { type: Type.STRING, description: "Date in YYYY-MM-DD format" },
+              },
+              required: ["fullName", "position", "reason", "date"],
+            },
+          },
+        });
+
+        if (!response.text) {
+          throw new Error("No se pudo obtener texto de la respuesta de la IA.");
+        }
+
+        const result = JSON.parse(response.text);
+        
+        if (files.length > 1) {
+          if (result.fullName || result.position || result.date || result.reason) {
+            // Check for duplicates before saving
+            const isDuplicate = records.some(r => 
+              r.fullName.trim().toLowerCase() === (result.fullName || '').trim().toLowerCase() &&
+              r.position.trim().toLowerCase() === (result.position || '').trim().toLowerCase() &&
+              r.reason.trim().toLowerCase() === (result.reason || '').trim().toLowerCase() &&
+              r.date === (result.date || '')
+            );
+
+            if (!isDuplicate) {
+              await addDoc(collection(db, 'records'), {
+                fullName: result.fullName || '',
+                position: result.position || '',
+                reason: result.reason || '',
+                date: result.date || format(new Date(), 'yyyy-MM-dd'),
+                createdAt: Date.now(),
+                createdBy: user?.uid,
+                authorEmail: user?.email || 'Administrador'
+              });
+              successCount++;
+            } else {
+              console.warn(`Duplicate record skipped: ${result.fullName}`);
+            }
+          }
+        } else {
+          if (result.fullName || result.position || result.date || result.reason) {
+            setFormData({
+              fullName: result.fullName || '',
+              position: result.position || '',
+              reason: result.reason || '',
+              date: result.date || format(new Date(), 'yyyy-MM-dd'),
+            });
+            successCount++;
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+        errorCount++;
+      }
+    }
+
+    setIsExtracting(false);
+    e.target.value = '';
+    if (files.length > 1) {
+      showAlert(
+        "Procesamiento Finalizado", 
+        `Se procesaron ${files.length} imágenes.\n- Exitosos: ${successCount}\n- Errores: ${errorCount}`
+      );
+    } else if (errorCount > 0) {
+      showAlert("Error", "No se pudo extraer la información de la imagen.");
     }
   };
 
@@ -1227,14 +1276,22 @@ function App() {
                       : "bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-100"
                   )}>
                     {isExtracting ? (
-                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs">
+                          {extractionProgress.total > 1 
+                            ? `${extractionProgress.current}/${extractionProgress.total}` 
+                            : 'Extrayendo...'}
+                        </span>
+                      </div>
                     ) : (
                       <Download className="w-4 h-4 rotate-180" />
                     )}
-                    {isExtracting ? 'Extrayendo...' : 'Cargar desde Imagen'}
+                    {isExtracting ? '' : 'Cargar desde Imagen'}
                     <input 
                       type="file" 
                       accept="image/*" 
+                      multiple
                       className="hidden" 
                       onChange={handleExtractFromImage}
                       disabled={isExtracting}
