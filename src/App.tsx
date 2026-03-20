@@ -22,7 +22,9 @@ import {
   BarChart3,
   Moon,
   Sun,
-  AlertCircle
+  AlertCircle,
+  Menu,
+  X
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -73,6 +75,7 @@ export default function App() {
   const [records, setRecords] = useState<ActaRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats'>('dashboard');
   const [darkMode, setDarkMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   // Form State
   const [formData, setFormData] = useState({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
@@ -646,22 +649,58 @@ export default function App() {
 
   // --- Render App ---
   return (
-    <div className={cn("min-h-screen flex", darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900")}>
-      {/* Sidebar */}
-      <aside className={cn(
-        "w-64 border-r flex flex-col transition-colors",
+    <div className={cn("min-h-screen flex flex-col md:flex-row", darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900")}>
+      {/* Mobile Header */}
+      <div className={cn(
+        "md:hidden flex items-center justify-between p-4 border-b transition-colors sticky top-0 z-50",
         darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       )}>
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
-            <FileText className="text-white w-6 h-6" />
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <FileText className="text-white w-5 h-5" />
           </div>
-          <span className="font-bold text-lg tracking-tight">ActasPro</span>
+          <span className="font-bold text-lg">ActasPro</span>
+        </div>
+        <button 
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
+      </div>
+
+      {/* Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-50 w-64 border-r flex flex-col transition-all duration-300 transform md:relative md:translate-x-0",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full",
+        darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+      )}>
+        <div className="p-6 flex items-center justify-between md:justify-start gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
+              <FileText className="text-white w-6 h-6" />
+            </div>
+            <span className="font-bold text-lg tracking-tight">ActasPro</span>
+          </div>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
           <button 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
             className={cn(
               "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
               activeTab === 'dashboard' 
@@ -673,7 +712,7 @@ export default function App() {
             <span className="font-medium">Dashboard</span>
           </button>
           <button 
-            onClick={() => setActiveTab('records')}
+            onClick={() => { setActiveTab('records'); setSidebarOpen(false); }}
             className={cn(
               "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
               activeTab === 'records' 
@@ -685,7 +724,7 @@ export default function App() {
             <span className="font-medium">Registros</span>
           </button>
           <button 
-            onClick={() => setActiveTab('stats')}
+            onClick={() => { setActiveTab('stats'); setSidebarOpen(false); }}
             className={cn(
               "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
               activeTab === 'stats' 
@@ -731,9 +770,9 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-8">
-        <header className="flex justify-between items-center mb-8">
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
               {activeTab === 'dashboard' && 'Panel Principal'}
               {activeTab === 'records' && 'Gestión de Actas'}
               {activeTab === 'stats' && 'Análisis de Datos'}
@@ -742,17 +781,17 @@ export default function App() {
               Bienvenido de nuevo, Administrador.
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 w-full sm:w-auto">
             <button 
               onClick={exportToExcel}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-lg shadow-emerald-600/20"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-lg shadow-emerald-600/20"
             >
               <Download className="w-4 h-4" />
               Excel
             </button>
             <button 
               onClick={exportToPDF}
-              className="flex items-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition-colors shadow-lg shadow-rose-600/20"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition-colors shadow-lg shadow-rose-600/20"
             >
               <FileDown className="w-4 h-4" />
               PDF
