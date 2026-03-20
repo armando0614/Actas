@@ -82,6 +82,50 @@ export default function App() {
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
   const [hasApiKey, setHasApiKey] = useState(false);
 
+  // --- Computed Alerts ---
+  const alerts = useMemo(() => {
+    const personRecords: Record<string, ActaRecord[]> = {};
+    records.forEach(r => {
+      if (!personRecords[r.fullName]) personRecords[r.fullName] = [];
+      personRecords[r.fullName].push(r);
+    });
+
+    const activeAlerts: { name: string; count: number; period: string; records: ActaRecord[] }[] = [];
+
+    Object.entries(personRecords).forEach(([name, userRecords]) => {
+      // Sort by date
+      const sorted = [...userRecords].sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime());
+      
+      if (sorted.length >= 3) {
+        for (let i = 0; i <= sorted.length - 3; i++) {
+          const first = parseISO(sorted[i].date);
+          const third = parseISO(sorted[i + 2].date);
+          
+          // Calculate working days (Mon-Fri)
+          let workingDays = 0;
+          let tempDate = new Date(first.getTime());
+          while (tempDate <= third) {
+            const day = tempDate.getDay();
+            if (day !== 0 && day !== 6) workingDays++;
+            tempDate.setDate(tempDate.getDate() + 1);
+          }
+
+          if (workingDays <= 30) {
+            activeAlerts.push({
+              name,
+              count: sorted.length,
+              period: `${format(first, 'dd/MM/yyyy')} - ${format(third, 'dd/MM/yyyy')}`,
+              records: sorted.slice(i, i + 3)
+            });
+            break; // One alert per person is enough
+          }
+        }
+      }
+    });
+
+    return activeAlerts;
+  }, [records]);
+
   // --- Effects ---
   useEffect(() => {
     const key = (import.meta as any).env?.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
@@ -278,44 +322,27 @@ export default function App() {
     // Sort records by name to group them
     const sorted = [...filteredRecords].sort((a, b) => a.fullName.localeCompare(b.fullName));
     
-    // Prepare data using Array of Arrays for custom formatting
+    // Prepare data using Array of Arrays
     const data: any[][] = [
-      ["SISTEMA DE CONTROL DE ACTAS"],
+      ["RESUMEN DE ACTAS ADMINISTRATIVAS"],
       [`REPORTE GENERADO EL: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`],
       [],
       ["NOMBRE COMPLETO", "PUESTO", "MOTIVO DEL ACTA", "FECHA"]
     ];
 
-    let currentPerson = "";
-    let personCount = 0;
-
-    sorted.forEach((r, index) => {
-      // If person changes, add a subtotal for the previous person
-      if (currentPerson && r.fullName !== currentPerson) {
-        data.push(["", "", `SUBTOTAL (${currentPerson}):`, `${personCount} acta(s)`]);
-        data.push([]); // Spacer row
-        personCount = 0;
-      }
-      
+    sorted.forEach((r) => {
       data.push([r.fullName, r.position, r.reason, r.date]);
-      currentPerson = r.fullName;
-      personCount++;
-
-      // Handle the last person in the list
-      if (index === sorted.length - 1) {
-        data.push(["", "", `SUBTOTAL (${currentPerson}):`, `${personCount} acta(s)`]);
-      }
     });
 
     // Add final summary
     data.push([]);
     data.push(["RESUMEN GENERAL"]);
-    data.push(["Total de Actas Registradas:", "", "", sorted.length]);
-    data.push(["Total de Personas con Actas:", "", "", new Set(sorted.map(r => r.fullName)).size]);
+    data.push(["Total de Actas Registradas:", sorted.length]);
+    data.push(["Total de Personas con Actas:", new Set(sorted.map(r => r.fullName)).size]);
 
     const worksheet = XLSX.utils.aoa_to_sheet(data);
     
-    // Define column widths for a professional look
+    // Define column widths
     worksheet['!cols'] = [
       { wch: 35 }, // Nombre
       { wch: 25 }, // Puesto
@@ -326,19 +353,62 @@ export default function App() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Reporte de Actas");
     
-    // Generate and download
-    XLSX.writeFile(workbook, `Reporte_Actas_Profesional_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    XLSX.writeFile(workbook, `Resumen_Actas_${format(new Date(), 'yyyyMMdd')}.xlsx`);
   };
 
   const exportToPDF = () => {
-    const doc = new jsPDF();
-    doc.text("Reporte de Actas de Control", 14, 15);
-    (doc as any).autoTable({
-      startY: 20,
-      head: [['Nombre', 'Puesto', 'Motivo', 'Fecha']],
-      body: filteredRecords.map(r => [r.fullName, r.position, r.reason, r.date]),
-    });
-    doc.save(`Reporte_Actas_${format(new Date(), 'yyyyMMdd')}.pdf`);
+    try {
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFontSize(18);
+      doc.setTextColor(40, 40, 40);
+      doc.text("Resumen de Actas Administrativas", 14, 22);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Generado por: Sistema ActasPro`, 14, 28);
+      doc.text(`Fecha: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 33);
+      
+      // Table
+      (doc as any).autoTable({
+        startY: 40,
+        head: [['Nombre', 'Puesto', 'Motivo', 'Fecha']],
+        body: filteredRecords.map(r => [r.fullName, r.position, r.reason, r.date]),
+        headStyles: { 
+          fillColor: [37, 99, 235], 
+          textColor: 255, 
+          fontSize: 10, 
+          fontStyle: 'bold',
+          halign: 'center'
+        },
+        bodyStyles: { 
+          fontSize: 9,
+          textColor: 50
+        },
+        alternateRowStyles: { 
+          fillColor: [248, 250, 252] 
+        },
+        columnStyles: {
+          0: { cellWidth: 40 },
+          1: { cellWidth: 35 },
+          2: { cellWidth: 'auto' },
+          3: { cellWidth: 25, halign: 'center' }
+        },
+        margin: { top: 40 },
+        didDrawPage: (data: any) => {
+          // Footer
+          const str = "Página " + doc.getNumberOfPages();
+          doc.setFontSize(8);
+          doc.text(str, data.settings.margin.left, doc.internal.pageSize.height - 10);
+        }
+      });
+      
+      doc.save(`Resumen_Actas_${format(new Date(), 'yyyyMMdd')}.pdf`);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      alert("Error al generar el PDF. Por favor intenta de nuevo.");
+    }
   };
 
   // --- Render Login ---
@@ -579,6 +649,43 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Alerts Section */}
+              <div className={cn("p-6 rounded-2xl border shadow-sm", darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <AlertCircle className="text-rose-500 w-5 h-5" />
+                    Alertas de Reincidencia
+                  </h3>
+                  <span className="px-2 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-600 text-xs font-bold rounded-lg">
+                    {alerts.length} Críticas
+                  </span>
+                </div>
+                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                  {alerts.map((alert, idx) => (
+                    <div key={idx} className="p-4 rounded-xl bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <p className="font-bold text-rose-700 dark:text-rose-400">{alert.name}</p>
+                          <p className="text-xs text-rose-600/70 dark:text-rose-400/60">3+ actas en menos de 30 días hábiles</p>
+                        </div>
+                        <div className="bg-rose-600 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase">
+                          Alerta
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-rose-600 dark:text-rose-400 font-medium">
+                        <Calendar className="w-3 h-3" />
+                        Periodo: {alert.period}
+                      </div>
+                    </div>
+                  ))}
+                  {alerts.length === 0 && (
+                    <div className="text-center py-12 text-slate-400 italic text-sm">
+                      No se detectaron reincidencias críticas.
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className={cn("p-6 rounded-2xl border shadow-sm", darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
                 <h3 className="text-lg font-bold mb-6">Actas por Empleado (Top 10)</h3>
                 <div className="h-[300px] w-full">
