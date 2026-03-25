@@ -26,7 +26,9 @@ import {
   AlertCircle,
   Menu,
   X,
-  Lock
+  Lock,
+  Database,
+  Upload
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -471,6 +473,56 @@ function App() {
         }
       }
     );
+  };
+
+  const exportData = () => {
+    const dataStr = JSON.stringify(records, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `actaspro_backup_${format(new Date(), 'yyyyMMdd')}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const importedRecords = JSON.parse(event.target?.result as string);
+        if (!Array.isArray(importedRecords)) throw new Error("Formato de archivo inválido.");
+
+        let count = 0;
+        for (const record of importedRecords) {
+          // Basic duplicate check
+          const isDuplicate = records.some(r => 
+            r.fullName.trim().toLowerCase() === record.fullName.trim().toLowerCase() &&
+            r.position.trim().toLowerCase() === record.position.trim().toLowerCase() &&
+            r.date === record.date
+          );
+
+          if (!isDuplicate) {
+            await addDoc(collection(db, 'records'), {
+              ...record,
+              createdAt: Date.now(),
+              createdBy: user?.uid,
+              authorEmail: user?.email || 'Administrador'
+            });
+            count++;
+          }
+        }
+        showAlert("Éxito", `Se importaron ${count} registros correctamente.`);
+      } catch (error) {
+        console.error("Error importing data:", error);
+        showAlert("Error", "No se pudo importar el archivo. Asegúrate de que sea un JSON válido.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleEdit = (record: ActaRecord) => {
@@ -1098,6 +1150,20 @@ function App() {
             <LogOut className="w-5 h-5" />
             <span className="font-medium">Cerrar Sesión</span>
           </button>
+          <div className="pt-2 border-t dark:border-slate-800 space-y-2">
+            <button 
+              onClick={exportData}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all"
+            >
+              <Database className="w-5 h-5" />
+              <span className="font-medium">Descargar Backup</span>
+            </button>
+            <label className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-all cursor-pointer">
+              <Upload className="w-5 h-5" />
+              <span className="font-medium">Cargar Backup</span>
+              <input type="file" accept=".json" className="hidden" onChange={importData} />
+            </label>
+          </div>
         </div>
       </aside>
 
