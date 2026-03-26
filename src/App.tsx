@@ -242,6 +242,7 @@ function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
+  const [currentImagePreview, setCurrentImagePreview] = useState<string | null>(null);
   
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -411,6 +412,7 @@ function App() {
         });
       }
       setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
+      setCurrentImagePreview(null);
     } catch (error) {
       handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'records');
     }
@@ -550,6 +552,9 @@ function App() {
         const base64Promise = new Promise<string>((resolve, reject) => {
           reader.onload = () => {
             const result = reader.result as string;
+            if (files.length === 1) {
+              setCurrentImagePreview(result);
+            }
             if (result.includes(',')) {
               resolve(result.split(',')[1]);
             } else {
@@ -1324,69 +1329,93 @@ function App() {
                   </label>
                 )}
               </h3>
-              <form onSubmit={handleSaveRecord} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Nombre Completo</label>
-                  <input 
-                    type="text" 
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                    value={formData.fullName}
-                    onChange={e => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Puesto</label>
-                  <input 
-                    type="text" 
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                    value={formData.position}
-                    onChange={e => setFormData(prev => ({ ...prev, position: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fecha del Acta</label>
-                  <input 
-                    type="date" 
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                    value={formData.date}
-                    onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                  />
-                </div>
-                <div className="md:col-span-3 space-y-2">
-                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Motivo del Acta</label>
-                  <textarea 
-                    required
-                    rows={3}
-                    placeholder="Describe el motivo del acta..."
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white resize-none"
-                    value={formData.reason}
-                    onChange={e => setFormData(prev => ({ ...prev, reason: e.target.value }))}
-                  />
-                </div>
-                <div className="md:col-span-3 flex justify-end gap-3">
-                  {editingId && (
+              <div className={cn("flex flex-col gap-6", currentImagePreview ? "lg:flex-row" : "")}>
+                {currentImagePreview && (
+                  <div className="lg:w-1/3 shrink-0">
+                    <div className="relative group rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shadow-inner">
+                      <img 
+                        src={currentImagePreview} 
+                        alt="Vista previa" 
+                        className="w-full h-auto max-h-[400px] object-contain"
+                        referrerPolicy="no-referrer"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setCurrentImagePreview(null)}
+                        className="absolute top-2 right-2 p-2 bg-white/90 dark:bg-slate-900/90 text-red-500 rounded-full shadow-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-all opacity-0 group-hover:opacity-100"
+                        title="Quitar imagen"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-center text-slate-500 italic">Imagen cargada para extracción</p>
+                  </div>
+                )}
+                <form onSubmit={handleSaveRecord} className={cn("grid grid-cols-1 md:grid-cols-3 gap-6", currentImagePreview ? "lg:flex-1" : "w-full")}>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Nombre Completo</label>
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                      value={formData.fullName}
+                      onChange={e => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Puesto</label>
+                    <input 
+                      type="text" 
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                      value={formData.position}
+                      onChange={e => setFormData(prev => ({ ...prev, position: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fecha del Acta</label>
+                    <input 
+                      type="date" 
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                      value={formData.date}
+                      onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="md:col-span-3 space-y-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Motivo del Acta</label>
+                    <textarea 
+                      required
+                      rows={3}
+                      placeholder="Describe el motivo del acta..."
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white resize-none"
+                      value={formData.reason}
+                      onChange={e => setFormData(prev => ({ ...prev, reason: e.target.value }))}
+                    />
+                  </div>
+                  <div className="md:col-span-3 flex justify-end gap-3">
+                    {editingId && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setEditingId(null);
+                          setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
+                          setCurrentImagePreview(null);
+                        }}
+                        className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    )}
                     <button 
-                      type="button"
-                      onClick={() => {
-                        setEditingId(null);
-                        setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
-                      }}
-                      className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                      type="submit"
+                      className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
                     >
-                      Cancelar
+                      {editingId ? 'Actualizar Registro' : 'Guardar Acta'}
                     </button>
-                  )}
-                  <button 
-                    type="submit"
-                    className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
-                  >
-                    {editingId ? 'Actualizar Registro' : 'Guardar Acta'}
-                  </button>
-                </div>
-              </form>
+                  </div>
+                </form>
+              </div>
             </div>
 
             {/* Filters & Table */}
