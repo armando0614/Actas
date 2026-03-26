@@ -190,6 +190,7 @@ interface ActaRecord {
   position: string;
   reason: string;
   date: string;
+  imageUrl?: string;
   createdAt: number;
   createdBy: string;
   authorEmail?: string;
@@ -401,11 +402,12 @@ function App() {
     try {
       if (editingId) {
         const docRef = doc(db, 'records', editingId);
-        await updateDoc(docRef, { ...formData });
+        await updateDoc(docRef, { ...formData, imageUrl: currentImagePreview });
         setEditingId(null);
       } else {
         await addDoc(collection(db, 'records'), {
           ...formData,
+          imageUrl: currentImagePreview,
           createdAt: Date.now(),
           createdBy: user?.uid,
           authorEmail: user?.email || 'Administrador'
@@ -517,6 +519,7 @@ function App() {
   const handleEdit = (record: ActaRecord) => {
     setFormData({ fullName: record.fullName, position: record.position, reason: record.reason || '', date: record.date });
     setEditingId(record.id);
+    setCurrentImagePreview(record.imageUrl || null);
     setActiveTab('records');
   };
 
@@ -549,14 +552,17 @@ function App() {
 
       try {
         const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve, reject) => {
+        const base64Promise = new Promise<{data: string, full: string}>((resolve, reject) => {
           reader.onload = () => {
             const result = reader.result as string;
             if (files.length === 1) {
               setCurrentImagePreview(result);
             }
             if (result.includes(',')) {
-              resolve(result.split(',')[1]);
+              resolve({
+                data: result.split(',')[1],
+                full: result
+              });
             } else {
               reject(new Error("Error al procesar la imagen. Formato no válido."));
             }
@@ -564,7 +570,7 @@ function App() {
           reader.onerror = () => reject(new Error("Error al leer el archivo."));
         });
         reader.readAsDataURL(file);
-        const base64Data = await base64Promise;
+        const { data: base64Data, full: fullBase64 } = await base64Promise;
 
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
@@ -618,6 +624,7 @@ function App() {
                 position: result.position || '',
                 reason: result.reason || '',
                 date: result.date || format(new Date(), 'yyyy-MM-dd'),
+                imageUrl: fullBase64,
                 createdAt: Date.now(),
                 createdBy: user?.uid,
                 authorEmail: user?.email || 'Administrador'
@@ -1491,10 +1498,23 @@ function App() {
                           {r.reason}
                         </td>
                         <td className="py-4 px-4">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                            <Calendar className="w-3 h-3" />
-                            {r.date}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                              <Calendar className="w-3 h-3" />
+                              {r.date}
+                            </span>
+                            {r.imageUrl && (
+                              <a 
+                                href={r.imageUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                                title="Ver imagen completa"
+                              >
+                                <Upload className="w-4 h-4" />
+                              </a>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-4 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
