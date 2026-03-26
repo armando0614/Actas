@@ -888,7 +888,7 @@ function App() {
   }
 
   return (
-    <div className={cn("min-h-screen flex flex-col md:flex-row", darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900")}>
+    <div className={cn("min-h-screen", darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900")}>
       <AnimatePresence mode="wait">
         {!user ? (
           <motion.div 
@@ -996,13 +996,18 @@ function App() {
               </button>
             </div>
 
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+            {/* Sidebar Overlay */}
+            <AnimatePresence>
+              {sidebarOpen && (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+                  onClick={() => setSidebarOpen(false)}
+                />
+              )}
+            </AnimatePresence>
 
       {/* Sidebar */}
       <aside className={cn(
@@ -1546,11 +1551,13 @@ function App() {
       {/* Custom Modal */}
       <AnimatePresence>
         {modal.isOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          >
+            <div 
               onClick={() => setModal(prev => ({ ...prev, isOpen: false }))}
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             />
@@ -1603,7 +1610,7 @@ function App() {
                 </button>
               </div>
             </motion.div>
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
           </motion.div>
