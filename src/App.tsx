@@ -244,6 +244,7 @@ function App() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
   const [currentImagePreview, setCurrentImagePreview] = useState<string | null>(null);
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
   
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -1504,15 +1505,13 @@ function App() {
                               {r.date}
                             </span>
                             {r.imageUrl && (
-                              <a 
-                                href={r.imageUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
+                              <button 
+                                onClick={() => setViewingImage(r.imageUrl || null)}
                                 className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
                                 title="Ver imagen completa"
                               >
                                 <Upload className="w-4 h-4" />
-                              </a>
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1662,6 +1661,59 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Image Viewer Modal */}
+      <AnimatePresence>
+        {viewingImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md"
+            onClick={() => setViewingImage(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-5xl w-full max-h-[90vh] bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-4 border-b dark:border-slate-800">
+                <h3 className="text-lg font-semibold">Visualización de Documento</h3>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      const link = document.createElement('a');
+                      link.href = viewingImage;
+                      link.download = `acta-${Date.now()}.png`;
+                      link.click();
+                    }}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-blue-600"
+                    title="Descargar imagen"
+                  >
+                    <Download className="w-5 h-5" />
+                  </button>
+                  <button 
+                    onClick={() => setViewingImage(null)}
+                    className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-slate-100 dark:bg-slate-950">
+                <img 
+                  src={viewingImage} 
+                  alt="Documento completo" 
+                  className="max-w-full h-auto shadow-lg"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
