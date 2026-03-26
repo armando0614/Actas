@@ -197,8 +197,6 @@ interface ActaRecord {
 
 // --- Constants ---
 const STORAGE_KEY = 'actas_records_v1';
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = '1234';
 
 export default function AppWrapper() {
   return (
@@ -222,7 +220,6 @@ function App() {
     return false;
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
   const [modal, setModal] = useState<{
     isOpen: boolean;
@@ -356,15 +353,6 @@ function App() {
   }, []);
 
   // --- Handlers ---
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loginForm.username === ADMIN_USER && loginForm.password === ADMIN_PASS) {
-      handleBypass();
-    } else {
-      showAlert("Credenciales Incorrectas", "El usuario o la contraseña son incorrectos.");
-    }
-  };
-
   const handleBypass = async () => {
     try {
       // Try to sign in with Firebase
@@ -385,7 +373,6 @@ function App() {
     try {
       await signOut(auth);
       setUser(null);
-      setLoginForm({ username: '', password: '' });
     } catch (error) {
       console.error("Logout Error:", error);
       setUser(null);
@@ -950,58 +937,25 @@ function App() {
                 <p className="text-slate-400 text-xs mt-1">Gestión de Actas Administrativas</p>
               </div>
 
-              <form onSubmit={handleLogin} className="p-8 space-y-5">
-                <div className="space-y-4">
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input 
-                      type="text"
-                      placeholder="Usuario"
-                      required
-                      value={loginForm.username}
-                      onChange={e => setLoginForm(prev => ({ ...prev, username: e.target.value }))}
-                      className={cn(
-                        "w-full pl-11 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all",
-                        darkMode ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500" : "bg-slate-50 border-slate-200 text-slate-900"
-                      )}
-                    />
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <input 
-                      type="password"
-                      placeholder="Contraseña"
-                      required
-                      value={loginForm.password}
-                      onChange={e => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
-                      className={cn(
-                        "w-full pl-11 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all",
-                        darkMode ? "bg-slate-800 border-slate-700 text-white placeholder:text-slate-500" : "bg-slate-50 border-slate-200 text-slate-900"
-                      )}
-                    />
-                  </div>
+              <div className="p-8 space-y-6">
+                <div className="text-center space-y-2">
+                  <p className={cn(
+                    "text-sm font-medium",
+                    darkMode ? "text-slate-400" : "text-slate-600"
+                  )}>
+                    Bienvenido. Presione el botón para ingresar.
+                  </p>
                 </div>
                 
                 <motion.button 
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  type="submit"
-                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all flex items-center justify-center gap-2"
-                >
-                  Acceder al Sistema
-                </motion.button>
-
-                <motion.button 
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
                   type="button"
                   onClick={handleBypass}
-                  className={cn(
-                    "w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 border",
-                    darkMode ? "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700" : "bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200"
-                  )}
+                  className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold shadow-[0_10px_30px_rgba(37,99,235,0.3)] transition-all flex items-center justify-center gap-3 text-lg"
                 >
-                  Acceso Directo (Bypass)
+                  <Lock className="w-5 h-5" />
+                  Entrar al Sistema
                 </motion.button>
 
                 <div className="flex items-center justify-center gap-4 text-[10px] text-slate-400 pt-2">
@@ -1009,7 +963,7 @@ function App() {
                   <span>Sincronización en Tiempo Real</span>
                   <div className={cn("w-8 h-px", darkMode ? "bg-slate-800" : "bg-slate-200")} />
                 </div>
-              </form>
+              </div>
             </motion.div>
 
             {/* Decorative elements */}
