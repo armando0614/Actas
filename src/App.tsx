@@ -29,7 +29,8 @@ import {
   Lock,
   Database,
   Upload,
-  Printer
+  Printer,
+  CheckCircle
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -47,6 +48,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import SignatureCanvas from 'react-signature-canvas';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -207,6 +209,9 @@ interface ActaRecord {
   anioHechos?: string;
   voiceTo?: string;
   isDetailedActa?: boolean;
+  signatureDataUrl?: string;
+  supervisorSignature?: string;
+  witnessSignature?: string;
 }
 
 // --- Constants ---
@@ -256,6 +261,15 @@ function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [signatureStep, setSignatureStep] = useState<'worker' | 'supervisor' | 'witness'>('worker');
+  const [capturedSignatures, setCapturedSignatures] = useState({
+    worker: '',
+    supervisor: '',
+    witness: ''
+  });
+  const signatureRef = React.useRef<SignatureCanvas>(null);
   const [currentImagePreview, setCurrentImagePreview] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const [newActaData, setNewActaData] = useState({
@@ -585,7 +599,7 @@ function App() {
     e.target.value = '';
   };
 
-  const generateDetailedActaPDF = (data: any) => {
+  const generateDetailedActaPDF = (data: any, signatureDataUrl?: string, supervisorSignature?: string, witnessSignature?: string) => {
     try {
       const doc = new jsPDF();
       const margin = 25; // Adjusted margin to match the PDF look
@@ -672,6 +686,14 @@ function App() {
       y += 5;
       drawText("NOMBRE, FIRMA Y HUELLA DEL TRABAJADOR.", pageWidth / 2, y, { align: "center" });
       
+      if (signatureDataUrl) {
+        try {
+          doc.addImage(signatureDataUrl, 'PNG', pageWidth / 2 - 25, y - 35, 50, 25);
+        } catch (imgErr) {
+          console.error("Error adding worker signature image to PDF:", imgErr);
+        }
+      }
+      
       y += 30;
       doc.line(pageWidth / 2 - 50, y, pageWidth / 2 + 50, y);
       y += 5;
@@ -683,6 +705,22 @@ function App() {
 
       doc.line(col1X - 35, y, col1X + 35, y);
       doc.line(col2X - 35, y, col2X + 35, y);
+      
+      if (supervisorSignature) {
+        try {
+          doc.addImage(supervisorSignature, 'PNG', col1X - 25, y - 35, 50, 25);
+        } catch (imgErr) {
+          console.error("Error adding supervisor signature image to PDF:", imgErr);
+        }
+      }
+
+      if (witnessSignature) {
+        try {
+          doc.addImage(witnessSignature, 'PNG', col2X - 25, y - 35, 50, 25);
+        } catch (imgErr) {
+          console.error("Error adding witness signature image to PDF:", imgErr);
+        }
+      }
       
       y += 5;
       doc.setFontSize(10);
@@ -709,33 +747,89 @@ function App() {
       }
     } catch (err) {
       console.error("Error generating PDF:", err);
-      alert("Error al generar el PDF. Por favor, revisa que los datos sean correctos.");
+      showAlert("Error", "Error al generar el PDF. Por favor, revisa que los datos sean correctos.");
     }
   };
 
   const handlePrintNewActa = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSignatureStep('worker');
+    setCapturedSignatures({ worker: '', supervisor: '', witness: '' });
+    setIsSignatureModalOpen(true);
+  };
+
+  const confirmSignatureAndGenerate = async () => {
+    if (!signatureRef.current || signatureRef.current.isEmpty()) {
+      showAlert("Aviso", "Por favor, firme antes de continuar.");
+      return;
+    }
+
+    let dataUrl = '';
+    try {
+      // Use getCanvas().toDataURL() as fallback for getTrimmedCanvas() which is failing in some environments
+      const canvas = signatureRef.current.getCanvas();
+      dataUrl = canvas.toDataURL('image/png');
+    } catch (err) {
+      console.error("Error capturing signature data URL:", err);
+      showAlert("Error", "No se pudo capturar la firma. Por favor intenta de nuevo.");
+      return;
+    }
+
+    if (signatureStep === 'worker') {
+      setCapturedSignatures(prev => ({ ...prev, worker: dataUrl }));
+      signatureRef.current.clear();
+      setSignatureStep('supervisor');
+      return;
+    }
+
+    if (signatureStep === 'supervisor') {
+      setCapturedSignatures(prev => ({ ...prev, supervisor: dataUrl }));
+      signatureRef.current.clear();
+      setSignatureStep('witness');
+      return;
+    }
+
+    // Final step: witness
+    const allSignatures = { ...capturedSignatures, witness: dataUrl };
+    setIsGeneratingPDF(true);
     
     try {
+      console.log("All signatures captured, generating PDF...");
+      
       // 1. Generate PDF FIRST so the user gets it immediately
-      generateDetailedActaPDF(newActaData);
+      try {
+        generateDetailedActaPDF(newActaData, allSignatures.worker, allSignatures.supervisor, allSignatures.witness);
+      } catch (pdfErr) {
+        console.error("PDF generation failed:", pdfErr);
+      }
       
       // 2. Then save to Firestore in the background
       const recordData = {
-        fullName: newActaData.fullName,
-        position: newActaData.position,
-        reason: newActaData.reason,
-        date: format(new Date(), 'yyyy-MM-dd'), // Save as proper ISO date for parsing
+        fullName: newActaData.fullName || 'Sin Nombre',
+        position: newActaData.position || 'Sin Puesto',
+        reason: newActaData.reason || '',
+        date: format(new Date(), 'yyyy-MM-dd'),
         createdAt: Date.now(),
-        createdBy: user?.uid,
+        createdBy: user?.uid || 'anonymous',
         authorEmail: user?.email || 'Administrador',
         isDetailedActa: true,
+        signatureDataUrl: allSignatures.worker,
+        supervisorSignature: allSignatures.supervisor,
+        witnessSignature: allSignatures.witness,
         ...newActaData
       };
       
-      await addDoc(collection(db, 'records'), recordData);
+      console.log("Saving record to Firestore...");
+      try {
+        await addDoc(collection(db, 'records'), recordData);
+      } catch (dbErr) {
+        console.error("Firestore save failed:", dbErr);
+        handleFirestoreError(dbErr, OperationType.CREATE, 'records');
+      }
       
-      showAlert("Éxito", "Acta descargada y guardada en el sistema.");
+      setIsSignatureModalOpen(false);
+      setIsGeneratingPDF(false);
+      showAlert("Éxito", "Acta procesada correctamente con todas las firmas.");
       
       setNewActaData({
         hora: format(new Date(), 'HH:mm'),
@@ -754,9 +848,9 @@ function App() {
       });
       setActiveTab('records');
     } catch (error) {
-      console.error("Error saving/printing acta:", error);
-      // Even if saving fails, the PDF was already triggered
-      showAlert("Aviso", "El PDF se generó, pero hubo un problema al guardar el registro en la base de datos.");
+      console.error("Error in confirmSignatureAndGenerate:", error);
+      setIsGeneratingPDF(false);
+      showAlert("Aviso", "Hubo un problema al procesar las firmas o guardar el registro.");
     }
   };
 
@@ -1795,7 +1889,7 @@ function App() {
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             {r.isDetailedActa && (
                               <button 
-                                onClick={() => generateDetailedActaPDF(r)}
+                                onClick={() => generateDetailedActaPDF(r, r.signatureDataUrl, r.supervisorSignature, r.witnessSignature)}
                                 className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg"
                                 title="Re-imprimir Acta"
                               >
@@ -2175,6 +2269,104 @@ function App() {
                   className="max-w-full h-auto shadow-lg"
                   referrerPolicy="no-referrer"
                 />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {isSignatureModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                    {signatureStep === 'worker' && `Firma de ${newActaData.fullName || 'Trabajador'}`}
+                    {signatureStep === 'supervisor' && `Firma de ${newActaData.supervisor || 'RICARDO BROCA'}`}
+                    {signatureStep === 'witness' && `Firma de ${newActaData.witness || 'VICTORIA VIDAL'}`}
+                  </h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {signatureStep === 'worker' && "Paso 1 de 3: Firma del trabajador"}
+                    {signatureStep === 'supervisor' && "Paso 2 de 3: Firma del supervisor"}
+                    {signatureStep === 'witness' && "Paso 3 de 3: Firma del testigo"}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setIsSignatureModalOpen(false)}
+                  className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 flex flex-col items-center gap-4">
+                <div className="w-full aspect-[2/1] bg-slate-100 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 overflow-hidden relative">
+                  <SignatureCanvas 
+                    ref={signatureRef}
+                    penColor="black"
+                    velocityFilterWeight={0.7}
+                    minWidth={1}
+                    maxWidth={2.5}
+                    canvasProps={{
+                      className: "w-full h-full cursor-crosshair",
+                      style: { width: '100%', height: '100%' }
+                    }}
+                  />
+                  <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none">
+                    <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold bg-white/50 px-2 py-1 rounded-full backdrop-blur-sm">
+                      Área de Firma
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex w-full gap-3">
+                  <button 
+                    onClick={() => signatureRef.current?.clear()}
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border border-slate-200 dark:border-slate-700"
+                  >
+                    Limpiar
+                  </button>
+                  <button 
+                    onClick={confirmSignatureAndGenerate}
+                    disabled={isGeneratingPDF}
+                    className="flex-[2] py-3 px-4 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isGeneratingPDF ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      <>
+                        {signatureStep === 'witness' ? (
+                          <>
+                            <Printer className="w-5 h-5" />
+                            Finalizar y Generar PDF
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-5 h-5" />
+                            Siguiente Firma
+                          </>
+                        )}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-100 dark:border-amber-900/30">
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 text-center leading-relaxed">
+                  Al firmar, usted confirma que la información proporcionada es verídica y acepta los términos del acta administrativa.
+                </p>
               </div>
             </motion.div>
           </motion.div>
