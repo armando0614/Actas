@@ -291,30 +291,45 @@ function App() {
 
     Object.entries(personRecords).forEach(([name, userRecords]) => {
       // Sort by date
-      const sorted = [...userRecords].sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime());
+      const sorted = [...userRecords].sort((a, b) => {
+        try {
+          const da = parseISO(a.date).getTime();
+          const db = parseISO(b.date).getTime();
+          if (isNaN(da) || isNaN(db)) return 0;
+          return da - db;
+        } catch (e) {
+          return 0;
+        }
+      });
       
       if (sorted.length >= 3) {
         for (let i = 0; i <= sorted.length - 3; i++) {
-          const first = parseISO(sorted[i].date);
-          const third = parseISO(sorted[i + 2].date);
-          
-          // Calculate working days (Mon-Fri)
-          let workingDays = 0;
-          let tempDate = new Date(first.getTime());
-          while (tempDate <= third) {
-            const day = tempDate.getDay();
-            if (day !== 0 && day !== 6) workingDays++;
-            tempDate.setDate(tempDate.getDate() + 1);
-          }
+          try {
+            const first = parseISO(sorted[i].date);
+            const third = parseISO(sorted[i + 2].date);
+            
+            if (isNaN(first.getTime()) || isNaN(third.getTime())) continue;
+            
+            // Calculate working days (Mon-Fri)
+            let workingDays = 0;
+            let tempDate = new Date(first.getTime());
+            while (tempDate <= third) {
+              const day = tempDate.getDay();
+              if (day !== 0 && day !== 6) workingDays++;
+              tempDate.setDate(tempDate.getDate() + 1);
+            }
 
-          if (workingDays <= 30) {
-            activeAlerts.push({
-              name,
-              count: sorted.length,
-              period: `${format(first, 'dd/MM/yyyy')} - ${format(third, 'dd/MM/yyyy')}`,
-              records: sorted.slice(i, i + 3)
-            });
-            break; // One alert per person is enough
+            if (workingDays <= 30) {
+              activeAlerts.push({
+                name,
+                count: sorted.length,
+                period: `${format(first, 'dd/MM/yyyy')} - ${format(third, 'dd/MM/yyyy')}`,
+                records: sorted.slice(i, i + 3)
+              });
+              break; // One alert per person is enough
+            }
+          } catch (e) {
+            continue;
           }
         }
       }
@@ -710,7 +725,7 @@ function App() {
         fullName: newActaData.fullName,
         position: newActaData.position,
         reason: newActaData.reason,
-        date: `${newActaData.anio}-${newActaData.mes}-${newActaData.dia}`,
+        date: format(new Date(), 'yyyy-MM-dd'), // Save as proper ISO date for parsing
         createdAt: Date.now(),
         createdBy: user?.uid,
         authorEmail: user?.email || 'Administrador',
@@ -900,11 +915,17 @@ function App() {
       
       let matchesDate = true;
       if (dateFilter.start && dateFilter.end) {
-        const recordDate = parseISO(r.date);
-        matchesDate = isWithinInterval(recordDate, {
-          start: startOfDay(parseISO(dateFilter.start)),
-          end: endOfDay(parseISO(dateFilter.end))
-        });
+        try {
+          const recordDate = parseISO(r.date);
+          if (!isNaN(recordDate.getTime())) {
+            matchesDate = isWithinInterval(recordDate, {
+              start: startOfDay(parseISO(dateFilter.start)),
+              end: endOfDay(parseISO(dateFilter.end))
+            });
+          }
+        } catch (e) {
+          console.warn("Invalid date in record:", r.date);
+        }
       }
       
       return matchesSearch && matchesDate;
@@ -1523,7 +1544,16 @@ function App() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium">{format(parseISO(r.date), 'dd MMM, yyyy')}</p>
+                        <p className="text-sm font-medium">
+                          {(() => {
+                            try {
+                              const d = parseISO(r.date);
+                              return isNaN(d.getTime()) ? r.date : format(d, 'dd MMM, yyyy');
+                            } catch (e) {
+                              return r.date;
+                            }
+                          })()}
+                        </p>
                         <p className="text-xs text-slate-500">Registrado</p>
                       </div>
                     </div>
