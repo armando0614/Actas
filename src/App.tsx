@@ -45,7 +45,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -838,7 +838,7 @@ function App() {
       doc.text(`Fecha: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 33);
       
       // Table
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: 40,
         head: [['Nombre', 'Puesto', 'Motivo', 'Fecha']],
         body: filteredRecords.map(r => [r.fullName, r.position, r.reason, r.date]),
