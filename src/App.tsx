@@ -341,6 +341,14 @@ function App() {
       setIsAuthLoading(false);
     });
 
+    // Timeout for auth loading to prevent getting stuck on spinner
+    const timeout = setTimeout(() => {
+      if (isAuthLoading) {
+        console.warn("Auth loading timeout reached.");
+        setIsAuthLoading(false);
+      }
+    }, 5000);
+
     // Test Firestore connection
     const testConnection = async () => {
       try {
@@ -353,7 +361,10 @@ function App() {
     };
     testConnection();
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {
@@ -384,12 +395,26 @@ function App() {
   }, []);
 
   // --- Handlers ---
+  const handleGoogleLogin = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (error) {
+      console.error("Google Login Error:", error);
+      showAlert("Error de Inicio de Sesión", "No se pudo iniciar sesión con Google. Por favor intenta de nuevo.");
+    }
+  };
+
   const handleBypass = async () => {
     try {
-      // Try to sign in with Firebase
-      await signInAnonymously(auth);
+      // Try to sign in with Firebase with a timeout
+      const authPromise = signInAnonymously(auth);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Auth timeout")), 5000)
+      );
+      
+      await Promise.race([authPromise, timeoutPromise]);
     } catch (error) {
-      console.warn("Firebase Auth failed, using local session fallback:", error);
+      console.warn("Firebase Auth failed or timed out, using local session fallback:", error);
       // Fallback: Set a local user state so the app opens anyway
       setUser({ 
         uid: 'admin-local', 
@@ -546,67 +571,146 @@ function App() {
   };
 
   const generateDetailedActaPDF = (data: any) => {
-    const doc = new jsPDF();
-    const margin = 20;
-    const pageWidth = doc.internal.pageSize.width;
-    let y = 30;
+    try {
+      const doc = new jsPDF();
+      const margin = 25; // Adjusted margin to match the PDF look
+      const pageWidth = doc.internal.pageSize.width;
+      const contentWidth = pageWidth - (margin * 2);
+      let y = 30;
 
-    // Title
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("ACTA HECHOS.", pageWidth / 2, y, { align: "center" });
-    y += 15;
+      // Helper to draw text with specific color
+      const drawText = (text: string, x: number, yPos: number, options: any = {}, isDynamic = false) => {
+        if (isDynamic) {
+          doc.setTextColor(0, 51, 153); // Blue ink color
+        } else {
+          doc.setTextColor(0, 0, 0); // Black
+        }
+        doc.text(text, x, yPos, options);
+      };
 
-    // Body Text
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    
-    const text = `EN LA CIUDAD DE HUIMANGUILLO DEL ESTADO DE TABASCO, SIENDO LAS ${data.hora} HORAS, DEL DÍA ${data.dia} DEL MES DE ${data.mes} DEL AÑO ${data.anio} REUNIDOS EN LAS OFICINAS DE LA EMPRESA CONSTRUVIVIENDA TECNOLOGICAS, S.A. DE C.V, CON DOMICILIO EN: FRACCIONAMIENTO POMOCA BICENTENARIO C.P. 86402, RIO SECO Y MONTAÑA 2DA. SESIÓN, TABASCO COMPARECE EL C. ${data.fullName} QUIEN OCUPA EL PUESTO DE ${data.position} ANTE LA PRESENCIA DEL C. ${data.supervisor}, EN SU CARÁCTER DE SUPERVISOR DE SEGURIDAD Y TESTIGOS DE ASISTENCIA EL C. ${data.witness}, EN SU CARÁCTER DE EMPLEADO DE LA EMPRESA, SE APERCIBE AL C. ${data.fullName} PARA QUE MANIFIESTE SU VERSIÓN EN RELACIÓN A LOS HECHOS SUCEDIDO EL DÍA ${data.diaHechos} DEL MES DE ${data.mesHechos} DEL AÑO ${data.anioHechos} EN EL QUE SE INFORMA A ESTA GERENCIA QUE:`;
+      // Set font to Arial equivalent (helvetica)
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      drawText("ACTA HECHOS.", pageWidth / 2, y, { align: "center" });
+      y += 15;
 
-    const splitText = doc.splitTextToSize(text, pageWidth - (margin * 2));
-    doc.text(splitText, margin, y);
-    y += (splitText.length * 7);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setLineHeightFactor(1.5); // Set line spacing to 1.5 (often referred to as .5 in some contexts)
 
-    // Reason / Facts
-    y += 5;
-    const reasonText = data.reason;
-    const splitReason = doc.splitTextToSize(reasonText, pageWidth - (margin * 2));
-    doc.text(splitReason, margin, y);
-    
-    // Lines for reason (to mimic the paper)
-    const linesCount = 10;
-    doc.setDrawColor(200);
-    for(let i = 0; i < linesCount; i++) {
-      const lineY = y + (i * 8) + 6;
-      doc.line(margin, lineY, pageWidth - margin, lineY);
+      // First paragraph - We'll build it carefully to allow blue text and justification
+      const introText = `EN LA CIUDAD DE HUIMANGUILLO DEL ESTADO DE TABASCO, SIENDO LAS ${data.hora || "____"} HORAS, DEL DÍA ${data.dia || "____"} DEL MES DE ${data.mes || "____________"} DEL AÑO ${data.anio || "_________"}. REUNIDOS EN LAS OFICINAS DE LA EMPRESA CONSTRUVIVIENDA TECNOLOGICAS, S.A. DE C.V, CON DOMICILIO EN: FRACCIONAMIENTO POMOCA BICENTENARIO C.P. 86402, RIO SECO Y MONTAÑA 2DA. SESIÓN, TABASCO COMPARECE EL C. ${data.fullName || "_________________________________________"} QUIEN OCUPA EL PUESTO DE ${data.position || "___________________________"} ANTE LA PRESENCIA DEL C. ${data.supervisor || "IRVING RICARDO BROCA SANCHEZ"}, EN SU CARÁCTER DE SUPERVISOR DE SEGURIDAD Y TESTIGOS DE ASISTENCIA EL C. ${data.witness || "VICTORIA VIDAL LEON"}, EN SU CARÁCTER DE EMPLEADO DE LA EMPRESA, SE APERCIBE AL C. ${data.fullName || "__________________________________"} PARA QUE MANIFIESTE SU VERSIÓN EN RELACIÓN A LOS HECHOS SUCEDIDO EL DÍA ${data.diaHechos || "______"} DEL MES ${data.mesHechos || "__________"} DEL AÑO ${data.anioHechos || "_________"} EN EL QUE SE INFORMA A ESTA GERENCIA QUE:`;
+
+      const splitIntro = doc.splitTextToSize(introText, contentWidth);
+      doc.text(splitIntro, margin, y, { align: "justify", maxWidth: contentWidth });
+      y += (splitIntro.length * 7); // Adjust Y based on lines drawn
+
+      y += 5;
+      // Lines for reason - Reduced to 6 as requested
+      const linesCount = 6;
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.1);
+      
+      const reasonLines = doc.splitTextToSize(data.reason || "", contentWidth);
+      
+      for(let i = 0; i < linesCount; i++) {
+        const lineY = y + (i * 8);
+        doc.line(margin, lineY + 1, pageWidth - margin, lineY + 1);
+        if (reasonLines[i]) {
+          drawText(reasonLines[i], margin, lineY, {}, true);
+        }
+      }
+      y += (linesCount * 8) + 10;
+
+      drawText("POR LO QUE SE DA EL USO DE LA VOZ AL C. ", margin, y);
+      y += 10;
+      
+      // Lines for voice
+      const voiceLinesCount = 6;
+      const voiceLines = doc.splitTextToSize(data.voiceTo || "", contentWidth);
+      for(let i = 0; i < voiceLinesCount; i++) {
+        const lineY = y + (i * 8);
+        doc.line(margin, lineY + 1, pageWidth - margin, lineY + 1);
+        if (voiceLines[i]) {
+          drawText(voiceLines[i], margin, lineY, {}, true);
+        }
+      }
+      y += (voiceLinesCount * 8) + 5; // Subido reduciendo el espacio
+
+      // Footer
+      const footerText = `ES TODO LO QUE TENGO QUE MANIFESTAR. SIN OTRO ASUNTO QUE TRATAR, SE DA POR TERMINADA LA PRESENTE ACTA ADMINISTRATIVA CONSTANTE DE 1, FOJAS ÚTILES ESCRITAS POR UNA SOLA DE SUS CARAS, FIRMÁNDOLOS QUE EN LA MISMA INTERVINIERON AL MARGEN EN TODAS LAS HOJAS QUE SE ELABORARON Y EN SU CONCLUSIÓN AL CALCE, RATIFICANDO EN TODAS Y CADA UNA DE SUS PARTES PARA SU DEBIDA CONSTANCIA. TÚRNESE LAS MISMAS INCLUYENDO LOS ANTECEDENTES CORRESPONDIENTES PARA DETERMINAR LO QUE SE ESTIME PERTINENTE.`;
+      
+      const splitFooter = doc.splitTextToSize(footerText, contentWidth);
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0); // Texto en negro
+      doc.text(splitFooter, margin, y, { align: "justify", maxWidth: contentWidth });
+
+      // --- PAGE 2 ---
+      doc.addPage();
+      y = 40;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      drawText("PROTESTO LO NECESARIO", pageWidth / 2, y, { align: "center" });
+      
+      y += 30;
+      doc.line(pageWidth / 2 - 50, y, pageWidth / 2 + 50, y);
+      y += 5;
+      drawText("NOMBRE, FIRMA Y HUELLA DEL TRABAJADOR.", pageWidth / 2, y, { align: "center" });
+      
+      y += 30;
+      doc.line(pageWidth / 2 - 50, y, pageWidth / 2 + 50, y);
+      y += 5;
+      drawText("REPRESENTANTE LEGAL", pageWidth / 2, y, { align: "center" });
+
+      y += 40;
+      const col1X = pageWidth / 4 + 10;
+      const col2X = (pageWidth / 4) * 3 - 10;
+
+      doc.line(col1X - 35, y, col1X + 35, y);
+      doc.line(col2X - 35, y, col2X + 35, y);
+      
+      y += 5;
+      doc.setFontSize(10);
+      drawText(data.supervisor || "ING. IRVING RICARDO BROCA SANCHEZ", col1X, y, { align: "center" });
+      drawText(data.witness || "LIC. VICTORIA VIDAL LEON", col2X, y, { align: "center" });
+      
+      y += 5;
+      drawText("SUPERVISOR DE SEGURIDAD", col1X, y, { align: "center" });
+      drawText("JEFA DE RECURSOS HUMANOS", col2X, y, { align: "center" });
+
+      const fileName = `Acta_Hechos_${(data.fullName || 'Sin_Nombre').replace(/\s+/g, '_')}_${data.dia || 'DD'}.pdf`;
+      
+      try {
+        doc.save(fileName);
+      } catch (saveErr) {
+        console.warn("doc.save failed, trying blob url fallback", saveErr);
+        const blob = doc.output('blob');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 100);
+      }
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      alert("Error al generar el PDF. Por favor, revisa que los datos sean correctos.");
     }
-    y += (linesCount * 8) + 15;
-
-    // Voice
-    doc.text(`POR LO QUE SE DA EL USO DE LA VOZ AL C. ${data.voiceTo || data.fullName}`, margin, y);
-    y += 10;
-    doc.line(margin, y, pageWidth - margin, y);
-    y += 20;
-
-    // Footer
-    const footerText = `ES TODO LO QUE TENGO QUE MANIFESTAR. SIN OTRO ASUNTO QUE TRATAR, SE DA POR TERMINADA LA PRESENTE ACTA ADMINISTRATIVA CONSTANTE DE 1, FOJAS ÚTILES ESCRITAS POR UNA SOLA DE SUS CARAS, FIRMÁNDOLOS QUE EN LA MISMA INTERVINIERON AL MARGEN EN TODAS LAS HOJAS QUE SE ELABORARON Y EN SU CONCLUSIÓN AL CALCE, RATIFICANDO EN TODAS Y CADA UNA DE SUS PARTES PARA SU DEBIDA CONSTANCIA. TÚRNESE LAS MISMAS INCLUYENDO LOS ANTECEDENTES CORRESPONDIENTES PARA DETERMINAR LO QUE SE ESTIME PERTINENTE.`;
-    
-    const splitFooter = doc.splitTextToSize(footerText, pageWidth - (margin * 2));
-    doc.text(splitFooter, margin, y);
-
-    doc.save(`Acta_Hechos_${data.fullName}_${data.dia}.pdf`);
   };
 
   const handlePrintNewActa = async (e: React.FormEvent) => {
     e.preventDefault();
     
     try {
-      // 1. Save to Firestore
+      // 1. Generate PDF FIRST so the user gets it immediately
+      generateDetailedActaPDF(newActaData);
+      
+      // 2. Then save to Firestore in the background
       const recordData = {
         fullName: newActaData.fullName,
         position: newActaData.position,
         reason: newActaData.reason,
-        date: `${newActaData.anio}-${newActaData.mes}-${newActaData.dia}`, // Approximate date for sorting
+        date: `${newActaData.anio}-${newActaData.mes}-${newActaData.dia}`,
         createdAt: Date.now(),
         createdBy: user?.uid,
         authorEmail: user?.email || 'Administrador',
@@ -616,10 +720,8 @@ function App() {
       
       await addDoc(collection(db, 'records'), recordData);
       
-      // 2. Generate PDF
-      generateDetailedActaPDF(newActaData);
+      showAlert("Éxito", "Acta descargada y guardada en el sistema.");
       
-      showAlert("Éxito", "Acta generada, descargada y guardada correctamente.");
       setNewActaData({
         hora: format(new Date(), 'HH:mm'),
         dia: format(new Date(), 'dd'),
@@ -638,7 +740,8 @@ function App() {
       setActiveTab('records');
     } catch (error) {
       console.error("Error saving/printing acta:", error);
-      showAlert("Error", "No se pudo guardar o imprimir el acta.");
+      // Even if saving fails, the PDF was already triggered
+      showAlert("Aviso", "El PDF se generó, pero hubo un problema al guardar el registro en la base de datos.");
     }
   };
 
@@ -1081,7 +1184,7 @@ function App() {
                     "text-sm font-medium",
                     darkMode ? "text-slate-400" : "text-slate-600"
                   )}>
-                    Bienvenido. Presione el botón para ingresar.
+                    Bienvenido. Presione el botón para ingresar al sistema.
                   </p>
                 </div>
                 
