@@ -190,7 +190,6 @@ interface ActaRecord {
   position: string;
   reason: string;
   date: string;
-  imageUrl?: string;
   createdAt: number;
   createdBy: string;
   authorEmail?: string;
@@ -243,7 +242,6 @@ function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
-  const [currentImagePreview, setCurrentImagePreview] = useState<string | null>(null);
   
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -402,19 +400,17 @@ function App() {
     try {
       if (editingId) {
         const docRef = doc(db, 'records', editingId);
-        await updateDoc(docRef, { ...formData, imageUrl: currentImagePreview });
+        await updateDoc(docRef, { ...formData });
         setEditingId(null);
       } else {
         await addDoc(collection(db, 'records'), {
           ...formData,
-          imageUrl: currentImagePreview,
           createdAt: Date.now(),
           createdBy: user?.uid,
           authorEmail: user?.email || 'Administrador'
         });
       }
       setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
-      setCurrentImagePreview(null);
     } catch (error) {
       handleFirestoreError(error, editingId ? OperationType.UPDATE : OperationType.CREATE, 'records');
     }
@@ -519,7 +515,6 @@ function App() {
   const handleEdit = (record: ActaRecord) => {
     setFormData({ fullName: record.fullName, position: record.position, reason: record.reason || '', date: record.date });
     setEditingId(record.id);
-    setCurrentImagePreview(record.imageUrl || null);
     setActiveTab('records');
   };
 
@@ -552,17 +547,11 @@ function App() {
 
       try {
         const reader = new FileReader();
-        const base64Promise = new Promise<{data: string, full: string}>((resolve, reject) => {
+        const base64Promise = new Promise<string>((resolve, reject) => {
           reader.onload = () => {
             const result = reader.result as string;
-            if (files.length === 1) {
-              setCurrentImagePreview(result);
-            }
             if (result.includes(',')) {
-              resolve({
-                data: result.split(',')[1],
-                full: result
-              });
+              resolve(result.split(',')[1]);
             } else {
               reject(new Error("Error al procesar la imagen. Formato no válido."));
             }
@@ -570,7 +559,7 @@ function App() {
           reader.onerror = () => reject(new Error("Error al leer el archivo."));
         });
         reader.readAsDataURL(file);
-        const { data: base64Data, full: fullBase64 } = await base64Promise;
+        const base64Data = await base64Promise;
 
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
@@ -624,7 +613,6 @@ function App() {
                 position: result.position || '',
                 reason: result.reason || '',
                 date: result.date || format(new Date(), 'yyyy-MM-dd'),
-                imageUrl: fullBase64,
                 createdAt: Date.now(),
                 createdBy: user?.uid,
                 authorEmail: user?.email || 'Administrador'
@@ -1336,93 +1324,69 @@ function App() {
                   </label>
                 )}
               </h3>
-              <div className={cn("flex flex-col gap-6", currentImagePreview ? "lg:flex-row" : "")}>
-                {currentImagePreview && (
-                  <div className="lg:w-1/3 shrink-0">
-                    <div className="relative group rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shadow-inner">
-                      <img 
-                        src={currentImagePreview} 
-                        alt="Vista previa" 
-                        className="w-full h-auto max-h-[400px] object-contain"
-                        referrerPolicy="no-referrer"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setCurrentImagePreview(null)}
-                        className="absolute top-2 right-2 p-2 bg-white/90 dark:bg-slate-900/90 text-red-500 rounded-full shadow-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-all opacity-0 group-hover:opacity-100"
-                        title="Quitar imagen"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <p className="mt-2 text-xs text-center text-slate-500 italic">Imagen cargada para extracción</p>
-                  </div>
-                )}
-                <form onSubmit={handleSaveRecord} className={cn("grid grid-cols-1 md:grid-cols-3 gap-6", currentImagePreview ? "lg:flex-1" : "w-full")}>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Nombre Completo</label>
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                      value={formData.fullName}
-                      onChange={e => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Puesto</label>
-                    <input 
-                      type="text" 
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                      value={formData.position}
-                      onChange={e => setFormData(prev => ({ ...prev, position: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fecha del Acta</label>
-                    <input 
-                      type="date" 
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
-                      value={formData.date}
-                      onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                    />
-                  </div>
-                  <div className="md:col-span-3 space-y-2">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Motivo del Acta</label>
-                    <textarea 
-                      required
-                      rows={3}
-                      placeholder="Describe el motivo del acta..."
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white resize-none"
-                      value={formData.reason}
-                      onChange={e => setFormData(prev => ({ ...prev, reason: e.target.value }))}
-                    />
-                  </div>
-                  <div className="md:col-span-3 flex justify-end gap-3">
-                    {editingId && (
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          setEditingId(null);
-                          setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
-                          setCurrentImagePreview(null);
-                        }}
-                        className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                    )}
+              <form onSubmit={handleSaveRecord} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Nombre Completo</label>
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                    value={formData.fullName}
+                    onChange={e => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Puesto</label>
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                    value={formData.position}
+                    onChange={e => setFormData(prev => ({ ...prev, position: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fecha del Acta</label>
+                  <input 
+                    type="date" 
+                    required
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white"
+                    value={formData.date}
+                    onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                  />
+                </div>
+                <div className="md:col-span-3 space-y-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Motivo del Acta</label>
+                  <textarea 
+                    required
+                    rows={3}
+                    placeholder="Describe el motivo del acta..."
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 dark:text-white resize-none"
+                    value={formData.reason}
+                    onChange={e => setFormData(prev => ({ ...prev, reason: e.target.value }))}
+                  />
+                </div>
+                <div className="md:col-span-3 flex justify-end gap-3">
+                  {editingId && (
                     <button 
-                      type="submit"
-                      className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setFormData({ fullName: '', position: '', reason: '', date: format(new Date(), 'yyyy-MM-dd') });
+                      }}
+                      className="px-6 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                     >
-                      {editingId ? 'Actualizar Registro' : 'Guardar Acta'}
+                      Cancelar
                     </button>
-                  </div>
-                </form>
-              </div>
+                  )}
+                  <button 
+                    type="submit"
+                    className="px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20"
+                  >
+                    {editingId ? 'Actualizar Registro' : 'Guardar Acta'}
+                  </button>
+                </div>
+              </form>
             </div>
 
             {/* Filters & Table */}
@@ -1498,23 +1462,10 @@ function App() {
                           {r.reason}
                         </td>
                         <td className="py-4 px-4">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                              <Calendar className="w-3 h-3" />
-                              {r.date}
-                            </span>
-                            {r.imageUrl && (
-                              <a 
-                                href={r.imageUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
-                                title="Ver imagen completa"
-                              >
-                                <Upload className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                            <Calendar className="w-3 h-3" />
+                            {r.date}
+                          </span>
                         </td>
                         <td className="py-4 px-4 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
