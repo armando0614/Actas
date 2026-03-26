@@ -28,7 +28,8 @@ import {
   X,
   Lock,
   Database,
-  Upload
+  Upload,
+  Printer
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -194,6 +195,18 @@ interface ActaRecord {
   createdAt: number;
   createdBy: string;
   authorEmail?: string;
+  // New fields for "Acta Nueva"
+  hora?: string;
+  dia?: string;
+  mes?: string;
+  anio?: string;
+  supervisor?: string;
+  witness?: string;
+  diaHechos?: string;
+  mesHechos?: string;
+  anioHechos?: string;
+  voiceTo?: string;
+  isDetailedActa?: boolean;
 }
 
 // --- Constants ---
@@ -212,7 +225,7 @@ function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [records, setRecords] = useState<ActaRecord[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'records' | 'stats' | 'new-acta'>('dashboard');
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('actaspro-theme');
@@ -245,6 +258,21 @@ function App() {
   const [extractionProgress, setExtractionProgress] = useState({ current: 0, total: 0 });
   const [currentImagePreview, setCurrentImagePreview] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [newActaData, setNewActaData] = useState({
+    hora: format(new Date(), 'HH:mm'),
+    dia: format(new Date(), 'dd'),
+    mes: format(new Date(), 'MMMM'),
+    anio: format(new Date(), 'yyyy'),
+    fullName: '',
+    position: '',
+    supervisor: 'IRVING RICARDO BROCA SANCHEZ',
+    witness: 'VICTORIA VIDAL LEON',
+    diaHechos: format(new Date(), 'dd'),
+    mesHechos: format(new Date(), 'MMMM'),
+    anioHechos: format(new Date(), 'yyyy'),
+    reason: '',
+    voiceTo: ''
+  });
   
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -515,6 +543,103 @@ function App() {
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const generateDetailedActaPDF = (data: any) => {
+    const doc = new jsPDF();
+    const margin = 20;
+    const pageWidth = doc.internal.pageSize.width;
+    let y = 30;
+
+    // Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("ACTA HECHOS.", pageWidth / 2, y, { align: "center" });
+    y += 15;
+
+    // Body Text
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    
+    const text = `EN LA CIUDAD DE HUIMANGUILLO DEL ESTADO DE TABASCO, SIENDO LAS ${data.hora} HORAS, DEL DÍA ${data.dia} DEL MES DE ${data.mes} DEL AÑO ${data.anio} REUNIDOS EN LAS OFICINAS DE LA EMPRESA CONSTRUVIVIENDA TECNOLOGICAS, S.A. DE C.V, CON DOMICILIO EN: FRACCIONAMIENTO POMOCA BICENTENARIO C.P. 86402, RIO SECO Y MONTAÑA 2DA. SESIÓN, TABASCO COMPARECE EL C. ${data.fullName} QUIEN OCUPA EL PUESTO DE ${data.position} ANTE LA PRESENCIA DEL C. ${data.supervisor}, EN SU CARÁCTER DE SUPERVISOR DE SEGURIDAD Y TESTIGOS DE ASISTENCIA EL C. ${data.witness}, EN SU CARÁCTER DE EMPLEADO DE LA EMPRESA, SE APERCIBE AL C. ${data.fullName} PARA QUE MANIFIESTE SU VERSIÓN EN RELACIÓN A LOS HECHOS SUCEDIDO EL DÍA ${data.diaHechos} DEL MES DE ${data.mesHechos} DEL AÑO ${data.anioHechos} EN EL QUE SE INFORMA A ESTA GERENCIA QUE:`;
+
+    const splitText = doc.splitTextToSize(text, pageWidth - (margin * 2));
+    doc.text(splitText, margin, y);
+    y += (splitText.length * 7);
+
+    // Reason / Facts
+    y += 5;
+    const reasonText = data.reason;
+    const splitReason = doc.splitTextToSize(reasonText, pageWidth - (margin * 2));
+    doc.text(splitReason, margin, y);
+    
+    // Lines for reason (to mimic the paper)
+    const linesCount = 10;
+    doc.setDrawColor(200);
+    for(let i = 0; i < linesCount; i++) {
+      const lineY = y + (i * 8) + 6;
+      doc.line(margin, lineY, pageWidth - margin, lineY);
+    }
+    y += (linesCount * 8) + 15;
+
+    // Voice
+    doc.text(`POR LO QUE SE DA EL USO DE LA VOZ AL C. ${data.voiceTo || data.fullName}`, margin, y);
+    y += 10;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 20;
+
+    // Footer
+    const footerText = `ES TODO LO QUE TENGO QUE MANIFESTAR. SIN OTRO ASUNTO QUE TRATAR, SE DA POR TERMINADA LA PRESENTE ACTA ADMINISTRATIVA CONSTANTE DE 1, FOJAS ÚTILES ESCRITAS POR UNA SOLA DE SUS CARAS, FIRMÁNDOLOS QUE EN LA MISMA INTERVINIERON AL MARGEN EN TODAS LAS HOJAS QUE SE ELABORARON Y EN SU CONCLUSIÓN AL CALCE, RATIFICANDO EN TODAS Y CADA UNA DE SUS PARTES PARA SU DEBIDA CONSTANCIA. TÚRNESE LAS MISMAS INCLUYENDO LOS ANTECEDENTES CORRESPONDIENTES PARA DETERMINAR LO QUE SE ESTIME PERTINENTE.`;
+    
+    const splitFooter = doc.splitTextToSize(footerText, pageWidth - (margin * 2));
+    doc.text(splitFooter, margin, y);
+
+    doc.save(`Acta_Hechos_${data.fullName}_${data.dia}.pdf`);
+  };
+
+  const handlePrintNewActa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      // 1. Save to Firestore
+      const recordData = {
+        fullName: newActaData.fullName,
+        position: newActaData.position,
+        reason: newActaData.reason,
+        date: `${newActaData.anio}-${newActaData.mes}-${newActaData.dia}`, // Approximate date for sorting
+        createdAt: Date.now(),
+        createdBy: user?.uid,
+        authorEmail: user?.email || 'Administrador',
+        isDetailedActa: true,
+        ...newActaData
+      };
+      
+      await addDoc(collection(db, 'records'), recordData);
+      
+      // 2. Generate PDF
+      generateDetailedActaPDF(newActaData);
+      
+      showAlert("Éxito", "Acta generada, descargada y guardada correctamente.");
+      setNewActaData({
+        hora: format(new Date(), 'HH:mm'),
+        dia: format(new Date(), 'dd'),
+        mes: format(new Date(), 'MMMM'),
+        anio: format(new Date(), 'yyyy'),
+        fullName: '',
+        position: '',
+        supervisor: 'IRVING RICARDO BROCA SANCHEZ',
+        witness: 'VICTORIA VIDAL LEON',
+        diaHechos: format(new Date(), 'dd'),
+        mesHechos: format(new Date(), 'MMMM'),
+        anioHechos: format(new Date(), 'yyyy'),
+        reason: '',
+        voiceTo: ''
+      });
+      setActiveTab('records');
+    } catch (error) {
+      console.error("Error saving/printing acta:", error);
+      showAlert("Error", "No se pudo guardar o imprimir el acta.");
+    }
   };
 
   const handleEdit = (record: ActaRecord) => {
@@ -1069,6 +1194,18 @@ function App() {
             <span className="font-medium">Registros</span>
           </button>
           <button 
+            onClick={() => { setActiveTab('new-acta'); setSidebarOpen(false); }}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
+              activeTab === 'new-acta' 
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" 
+                : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400"
+            )}
+          >
+            <FileText className="w-5 h-5" />
+            <span className="font-medium">Acta Nueva</span>
+          </button>
+          <button 
             onClick={() => { setActiveTab('stats'); setSidebarOpen(false); }}
             className={cn(
               "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all",
@@ -1504,6 +1641,12 @@ function App() {
                               <Calendar className="w-3 h-3" />
                               {r.date}
                             </span>
+                            {r.isDetailedActa && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                                <FileText className="w-3 h-3" />
+                                Detallada
+                              </span>
+                            )}
                             {r.imageUrl && (
                               <button 
                                 onClick={() => setViewingImage(r.imageUrl || null)}
@@ -1517,6 +1660,15 @@ function App() {
                         </td>
                         <td className="py-4 px-4 text-right">
                           <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {r.isDetailedActa && (
+                              <button 
+                                onClick={() => generateDetailedActaPDF(r)}
+                                className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg"
+                                title="Re-imprimir Acta"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                            )}
                             <button 
                               onClick={() => handleEdit(r)}
                               className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"
@@ -1591,6 +1743,184 @@ function App() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'new-acta' && (
+          <div className="space-y-6">
+            <div className={cn("p-8 rounded-2xl border shadow-lg", darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
+              <div className="flex items-center gap-3 mb-8 border-b dark:border-slate-800 pb-6">
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-xl">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">Generar Acta de Hechos</h3>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm">Complete los campos para generar el acta lista para imprimir.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handlePrintNewActa} className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Hora</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.hora}
+                      onChange={(e) => setNewActaData({...newActaData, hora: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Día</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.dia}
+                      onChange={(e) => setNewActaData({...newActaData, dia: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Mes</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.mes}
+                      onChange={(e) => setNewActaData({...newActaData, mes: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Año</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.anio}
+                      onChange={(e) => setNewActaData({...newActaData, anio: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Comparece el C.</label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="Nombre completo del empleado"
+                      value={newActaData.fullName}
+                      onChange={(e) => setNewActaData({...newActaData, fullName: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Puesto</label>
+                    <input 
+                      type="text" 
+                      required
+                      placeholder="Puesto que ocupa"
+                      value={newActaData.position}
+                      onChange={(e) => setNewActaData({...newActaData, position: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Supervisor de Seguridad</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.supervisor}
+                      onChange={(e) => setNewActaData({...newActaData, supervisor: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Testigo de Asistencia</label>
+                    <input 
+                      type="text" 
+                      value={newActaData.witness}
+                      onChange={(e) => setNewActaData({...newActaData, witness: e.target.value})}
+                      className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                    />
+                  </div>
+                </div>
+
+                <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 space-y-6">
+                  <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-blue-500" />
+                    Detalles de los Hechos
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Día de los Hechos</label>
+                      <input 
+                        type="text" 
+                        value={newActaData.diaHechos}
+                        onChange={(e) => setNewActaData({...newActaData, diaHechos: e.target.value})}
+                        className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200")}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Mes de los Hechos</label>
+                      <input 
+                        type="text" 
+                        value={newActaData.mesHechos}
+                        onChange={(e) => setNewActaData({...newActaData, mesHechos: e.target.value})}
+                        className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200")}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Año de los Hechos</label>
+                      <input 
+                        type="text" 
+                        value={newActaData.anioHechos}
+                        onChange={(e) => setNewActaData({...newActaData, anioHechos: e.target.value})}
+                        className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-white border-slate-200")}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Se informa a esta Gerencia que:</label>
+                  <textarea 
+                    required
+                    rows={6}
+                    placeholder="Describa los hechos detalladamente..."
+                    value={newActaData.reason}
+                    onChange={(e) => setNewActaData({...newActaData, reason: e.target.value})}
+                    className={cn("w-full px-4 py-3 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none resize-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Uso de la voz al C. (Opcional)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Si se deja vacío, se usará el nombre del compareciente"
+                    value={newActaData.voiceTo}
+                    onChange={(e) => setNewActaData({...newActaData, voiceTo: e.target.value})}
+                    className={cn("w-full px-4 py-2.5 rounded-xl border transition-all focus:ring-2 focus:ring-blue-500 outline-none", darkMode ? "bg-slate-800 border-slate-700 text-white" : "bg-slate-50 border-slate-200")}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-4 pt-6 border-t dark:border-slate-800">
+                  <button 
+                    type="button"
+                    onClick={() => setActiveTab('dashboard')}
+                    className={cn("px-6 py-3 rounded-xl font-bold transition-all", darkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2"
+                  >
+                    <Printer className="w-5 h-5" />
+                    Generar y Guardar Acta
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
