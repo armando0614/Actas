@@ -1536,7 +1536,7 @@ function App() {
                   </div>
                 </div>
                 <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium">Total de Actas</h3>
-                <p className="text-3xl font-bold mt-1"><span>{records.length}</span></p>
+                <p className="text-3xl font-bold mt-1">{records.length}</p>
               </div>
               <div className={cn("p-6 rounded-2xl border shadow-sm", darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
                 <div className="flex justify-between items-start mb-4">
@@ -1545,7 +1545,7 @@ function App() {
                   </div>
                 </div>
                 <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium">Empleados Registrados</h3>
-                <p className="text-3xl font-bold mt-1"><span>{new Set(records.map(r => r.fullName)).size}</span></p>
+                <p className="text-3xl font-bold mt-1">{new Set(records.map(r => r.fullName)).size}</p>
               </div>
               <div className={cn("p-6 rounded-2xl border shadow-sm", darkMode ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200")}>
                 <div className="flex justify-between items-start mb-4">
@@ -1555,7 +1555,7 @@ function App() {
                 </div>
                 <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium">Actas este Mes</h3>
                 <p className="text-3xl font-bold mt-1">
-                  <span>{records.filter(r => r.date.startsWith(format(new Date(), 'yyyy-MM'))).length}</span>
+                  {records.filter(r => r.date.startsWith(format(new Date(), 'yyyy-MM'))).length}
                 </p>
               </div>
             </div>
@@ -1569,7 +1569,7 @@ function App() {
                     Alertas de Reincidencia
                   </h3>
                   <span className="px-2 py-1 bg-rose-100 dark:bg-rose-900/30 text-rose-600 text-xs font-bold rounded-lg">
-                    <span>{alerts.length}</span> Críticas
+                    {alerts.length} Críticas
                   </span>
                 </div>
                 <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
@@ -1668,7 +1668,7 @@ function App() {
               <h3 className="text-lg font-bold mb-6 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {editingId ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-                  <span>{editingId ? 'Editar Acta' : 'Nueva Acta'}</span>
+                  {editingId ? 'Editar Acta' : 'Nueva Acta'}
                 </div>
                 {!editingId && (
                   <label className={cn(
@@ -1682,14 +1682,14 @@ function App() {
                         <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                         <span className="text-xs">
                           {extractionProgress.total > 1 
-                            ? <span>{extractionProgress.current}/{extractionProgress.total}</span> 
-                            : <span>Extrayendo...</span>}
+                            ? `${extractionProgress.current}/${extractionProgress.total}` 
+                            : 'Extrayendo...'}
                         </span>
                       </div>
                     ) : (
                       <Download className="w-4 h-4 rotate-180" />
                     )}
-                    <span>{isExtracting ? '' : 'Cargar desde Imagen'}</span>
+                    {isExtracting ? '' : 'Cargar desde Imagen'}
                     <input 
                       type="file" 
                       accept="image/*" 
@@ -1853,22 +1853,20 @@ function App() {
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                              <span>{r.fullName.charAt(0)}</span>
+                              {r.fullName.charAt(0)}
                             </div>
                             <span className="font-medium">{r.fullName}</span>
                           </div>
                         </td>
-                        <td className="py-4 px-4 text-slate-600 dark:text-slate-400">
-                          <span>{r.position}</span>
-                        </td>
+                        <td className="py-4 px-4 text-slate-600 dark:text-slate-400">{r.position}</td>
                         <td className="py-4 px-4 text-slate-600 dark:text-slate-400 max-w-xs truncate" title={r.reason}>
-                          <span>{r.reason}</span>
+                          {r.reason}
                         </td>
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-2">
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
                               <Calendar className="w-3 h-3" />
-                              <span>{r.date}</span>
+                              {r.date}
                             </span>
                             {r.isDetailedActa && (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
