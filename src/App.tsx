@@ -1169,6 +1169,38 @@ function App() {
         fillSheetWithData(sheet2, reincidentRecords, 'Reincidentes');
       }
 
+      // Sheet 3: 2 Actas en 30 días
+      const thirtyDaysInMs = 30 * 24 * 60 * 60 * 1000;
+      const peopleWithTwoInThirty = new Set<string>();
+
+      const groupedByName = records.reduce((acc, r) => {
+        if (!acc[r.fullName]) acc[r.fullName] = [];
+        acc[r.fullName].push(r);
+        return acc;
+      }, {} as Record<string, ActaRecord[]>);
+
+      Object.entries(groupedByName).forEach(([name, personRecords]) => {
+        const sortedPersonRecords = [...personRecords].sort((a, b) => 
+          parseISO(a.date).getTime() - parseISO(b.date).getTime()
+        );
+        
+        for (let i = 0; i < sortedPersonRecords.length - 1; i++) {
+          const d1 = parseISO(sortedPersonRecords[i].date).getTime();
+          const d2 = parseISO(sortedPersonRecords[i+1].date).getTime();
+          if (d2 - d1 <= thirtyDaysInMs) {
+            peopleWithTwoInThirty.add(name);
+            break;
+          }
+        }
+      });
+
+      const thirtyDayRecords = filteredRecords.filter(r => peopleWithTwoInThirty.has(r.fullName));
+
+      if (thirtyDayRecords.length > 0) {
+        const sheet3 = workbook.addWorksheet('2 Actas en 30 Días');
+        fillSheetWithData(sheet3, thirtyDayRecords, 'Reincidentes (30 días)');
+      }
+
       // Generate and Save
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
